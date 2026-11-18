@@ -2546,6 +2546,8 @@ struct Game<'a> {
     touch: touch::Touch,
     #[cfg(target_os = "android")]
     mobile: mobile_controls::MobileControls,
+    /// Starling Native Mod Menu (gameplay overlay, ESP, combat testing).
+    pub mod_menu: horizon_client::mod_menu::ModMenu,
     /// What the player plays with: the touch controls show while it is the touch screen
     /// (game/input_mode.rs).
     input_mode: horizon_client::input_mode::InputMode,
@@ -7488,6 +7490,7 @@ impl Game<'_> {
         self.tick_command_extras();
         self.native_tick();
         self.tell_native_now();
+        self.tick_mod_menu();
         self.tick_world(running)
     }
     /// What the tick runs after the local player's own update: effects, the
@@ -8310,7 +8313,126 @@ impl Game<'_> {
         // Over the keyboard's lift: the note stays at the top.
         self.draw_imports(&mut batch);
         self.resolve_inline_profiles(&batch.inline_profiles);
+        self.draw_mod_menu_and_visuals(&mut batch);
         batch
+    }
+    /// Renders Starling Native Mod Menu visuals (ESP, Target HUD, Coords) and the menu window.
+    fn draw_mod_menu_and_visuals(&mut self, batch: &mut HudBatch) {
+        if let Some(cam) = self.native_camera_frame.as_ref() {
+            let p_pos = self.player.as_ref().map_or(cam.position, |p| [p.position.x, p.position.y, p.position.z]);
+            let (p_yaw, p_pitch) = self.player.as_ref().map_or((cam.yaw, cam.pitch), |p| (p.yaw, p.pitch));
+
+            // Extract entity data for ESP rendering
+            let mobs: Vec<_> = self.mobs.iter().enumerate().map(|(i, m)| {
+                (
+                    i,
+                    m.id,
+                    m.kind.id.as_str(),
+                    m.custom_name.as_deref(),
+                    [m.position.x, m.position.y, m.position.z],
+                    m.bounds(),
+                    m.health,
+                    m.kind.max_health,
+                )
+            }).collect();
+
+            let biome_name = self.dim.id();
+            let cam_pos = cam.position;
+            let cam_view = cam.view;
+            let cam_proj = cam.projection;
+
+            self.mod_menu.render_visuals(
+                batch,
+                &self.gui.atlas,
+                cam_pos,
+                cam_view,
+                cam_proj,
+                p_pos,
+                p_yaw,
+                p_pitch,
+                biome_name,
+                self.fps,
+                &mobs,
+            );
+        }
+
+        // Render the mod menu window and floating toggle button
+        self.mod_menu.render_menu(batch, &self.gui.atlas);
+    }
+    /// Updates active gameplay modifications: Auto-Sprint, Fast Place, Time Changer, and Combat Testing.
+    fn tick_mod_menu(&mut self) {
+        // Fast Place: reset block placement delay
+        if self.mod_menu.registry.is_enabled("fast_place") {
+            let delay_ticks = self.mod_menu.registry.get_feature("fast_place")
+                .map_or(0.0, |f| f.get_float_setting("delay_ticks")) as i32;
+            if self.use_delay > delay_ticks {
+                self.use_delay = delay_ticks;
+            }
+        }
+
+        // Time Changer: override day time for visual preview
+        if self.mod_menu.registry.is_enabled("time_changer") {
+            if let Some(f) = self.mod_menu.registry.get_feature("time_changer") {
+                self.world.day_time = f.get_float_setting("time") as i64;
+            }
+        }
+
+        // Auto Sprint: automatically engage sprint when moving forward
+        if self.mod_menu.registry.is_enabled("auto_sprint") {
+            if let Some(p) = self.player.as_mut() {
+                if p.applied_input[1] > 0.0 && !p.shift_key_down && !p.mobility_restricted {
+                    p.sprinting = true;
+                }
+            }
+        }
+
+        // Combat Testing / Controlled Simulated Attack:
+        if self.mod_menu.registry.is_enabled("combat_test") {
+            if let Some(p) = &self.player {
+                let p_pos = [p.position.x, p.position.y, p.position.z];
+                let p_yaw = p.yaw;
+                let p_pitch = p.pitch;
+
+                let mobs_iter = self.mobs.iter().enumerate().map(|(i, m)| {
+                    (
+                        i,
+                        m.id,
+                        m.kind.id.as_str(),
+                        m.custom_name.as_deref(),
+                        [m.position.x, m.position.y, m.position.z],
+                        m.health,
+                        m.kind.max_health,
+                    )
+                });
+
+                let target = self.mod_menu.combat.find_best_target(
+                    &self.mod_menu.registry,
+                    p_pos,
+                    p_yaw,
+                    p_pitch,
+                    mobs_iter,
+                );
+
+                if let Some(target) = target {
+                    if self.mod_menu.combat.should_attack(&self.mod_menu.registry) {
+                        if target.index < self.mobs.len() {
+                            self.attack_mob(target.index);
+                            self.swing_arm();
+                        }
+                    }
+                }
+            }
+        }
+
+        // Trigger Bot:
+        if self.mod_menu.registry.is_enabled("trigger_bot") {
+            if let Some((index, _dist)) = self.mob_hit() {
+                if index < self.mobs.len() && self.mobs[index].health > 0.0 {
+                    self.attack_mob(index);
+                    self.swing_arm();
+                }
+            }
+        }
     }
     fn hud_layers(&mut self, size: [u32; 2]) -> HudBatch {
         let mut batch = HudBatch::new(size);
@@ -15944,7 +16066,7 @@ impl Game<'_> {
         let depth_far =
             horizon_client::camera::depth_far(terrain_distance, self.settings.cloud_range);
         // Only native mods read it: no matrices or allocation per frame without one.
-        let mods_read_camera = !horizon_client::mod_api::mods().is_empty();
+        let mods_read_camera = !horizon_client::mod_api::mods().is_empty() || self.mod_menu.visuals_active();
         self.native_camera_frame = (mods_read_camera && !title).then(|| {
             let partial = camera_alpha as f32;
             horizon_client::mod_api::NativeCamera {
@@ -19061,6 +19183,7 @@ impl<'a> Game<'a> {
             touch: Default::default(),
             #[cfg(target_os = "android")]
             mobile: Default::default(),
+            mod_menu: horizon_client::mod_menu::ModMenu::new(),
             input_mode: horizon_client::input_mode::InputMode::first(cfg!(target_os = "android")),
             frames: 0,
             glint_frame: Default::default(),

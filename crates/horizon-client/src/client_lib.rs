@@ -102,6 +102,7 @@ pub mod menu;
 pub mod merchant;
 pub mod mobs;
 pub mod mod_content;
+pub mod mod_menu;
 pub mod motion;
 pub mod multiplayer;
 pub mod music;
