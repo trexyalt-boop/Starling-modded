@@ -7425,6 +7425,7 @@ impl Game<'_> {
                 self.screen = Screen::Inventory;
             }
         }
+        self.tick_mod_menu();
         if self.remote.is_some() {
             return self.tick_remote();
         }
@@ -7490,7 +7491,6 @@ impl Game<'_> {
         self.tick_command_extras();
         self.native_tick();
         self.tell_native_now();
-        self.tick_mod_menu();
         self.tick_world(running)
     }
     /// What the tick runs after the local player's own update: effects, the
@@ -8359,8 +8359,42 @@ impl Game<'_> {
         // Render the mod menu window and floating toggle button
         self.mod_menu.render_menu(batch, &self.gui.atlas);
     }
-    /// Updates active gameplay modifications: Auto-Sprint, Fast Place, Time Changer, and Combat Testing.
+    /// Dispatches an attack on a target mob supporting both local world and multiplayer remote packet delivery.
+    pub(super) fn mod_attack_mob(&mut self, index: usize, silent: bool) {
+        if index >= self.mobs.len() || self.spectator() {
+            return;
+        }
+        if self.remote.is_some() {
+            self.remote_attack_mob(index, silent);
+        } else {
+            self.attack_mob(index);
+            if !silent {
+                self.swing_arm();
+            }
+        }
+    }
+
+    /// Evaluates current weapon attack charge scale (0.0 to 1.0) across singleplayer and multiplayer.
+    pub(super) fn mod_attack_strength_scale(&self) -> f32 {
+        if self.remote.is_some() {
+            let speed = self.main_hand_attack_speed();
+            self.hand_strength.scale(0.5, speed)
+        } else {
+            self.attack_strength_scale()
+        }
+    }
+
+    /// Updates active gameplay modifications: Fullbright, Silent Aura, Trigger Bot, Critical Helper, Auto-Sprint, Fast Place, Time Changer.
     fn tick_mod_menu(&mut self) {
+        // Fullbright: sync to renderer's native lightmap override for caves & nighttime visibility
+        let fullbright = self.mod_menu.registry.is_enabled("fullbright");
+        if let Some(r) = self.renderer.as_mut() {
+            let target = fullbright || self.settings.extras.fullbright;
+            if r.fullbright != target {
+                r.fullbright = target;
+            }
+        }
+
         // Fast Place: reset block placement delay
         if self.mod_menu.registry.is_enabled("fast_place") {
             let delay_ticks = self.mod_menu.registry.get_feature("fast_place")
@@ -8382,6 +8416,91 @@ impl Game<'_> {
             if let Some(p) = self.player.as_mut() {
                 if p.applied_input[1] > 0.0 && !p.shift_key_down && !p.mobility_restricted {
                     p.sprinting = true;
+                }
+            }
+        }
+
+        // Calculate attack cooldown and critical hit state
+        let scale = self.mod_attack_strength_scale();
+        self.mod_menu.combat.attack_cooldown_scale = scale;
+
+        let mut is_falling = false;
+        let mut on_ground = true;
+        let mut is_crit_ready = false;
+
+        if let Some(p) = self.player.as_ref() {
+            on_ground = p.ground.on_ground;
+            is_falling = !p.ground.on_ground
+                && p.fall_distance > 0.0
+                && !p.fluids.was_touching_water
+                && !p.sprinting;
+            let restricted = self.potions.effects.get("blindness").is_some() || self.riding.is_some();
+            is_crit_ready = scale > 0.9 && is_falling && !restricted;
+        }
+
+        self.mod_menu.combat.is_falling = is_falling;
+        self.mod_menu.combat.is_on_ground = on_ground;
+
+        let crit_assist_enabled = self.mod_menu.registry.is_enabled("crit_assist");
+        let crit_only_global = crit_assist_enabled && self.mod_menu.registry.get_feature("crit_assist")
+            .is_some_and(|f| f.get_bool_setting("crit_only"));
+        let crit_auto_jump = crit_assist_enabled && self.mod_menu.registry.get_feature("crit_assist")
+            .is_some_and(|f| f.get_bool_setting("auto_jump"));
+
+        // Clean up stale target in Target HUD
+        if let Some(curr) = &self.mod_menu.combat.current_target {
+            if curr.index >= self.mobs.len() || self.mobs[curr.index].health <= 0.0 || self.mobs[curr.index].removed {
+                self.mod_menu.combat.current_target = None;
+            }
+        }
+
+        // Silent Aura: automated silent attack on best candidate within reach
+        if self.mod_menu.registry.is_enabled("silent_aura") {
+            if let Some(p) = &self.player {
+                let p_pos = [p.position.x, p.position.y, p.position.z];
+                let p_yaw = p.yaw;
+                let p_pitch = p.pitch;
+
+                let mobs_iter = self.mobs.iter().enumerate().map(|(i, m)| {
+                    (
+                        i,
+                        m.id,
+                        m.kind.id.as_str(),
+                        m.custom_name.as_deref(),
+                        [m.position.x, m.position.y, m.position.z],
+                        m.health,
+                        m.kind.max_health,
+                    )
+                });
+
+                let target = self.mod_menu.combat.find_target_for(
+                    "silent_aura",
+                    &self.mod_menu.registry,
+                    p_pos,
+                    p_yaw,
+                    p_pitch,
+                    mobs_iter,
+                );
+
+                if let Some(target) = target {
+                    let feat = self.mod_menu.registry.get_feature("silent_aura");
+                    let cooldown_sync = feat.map_or(true, |f| f.get_bool_setting("cooldown_sync"));
+                    let silent = feat.map_or(true, |f| f.get_bool_setting("silent_swing"));
+
+                    if crit_auto_jump && on_ground {
+                        self.pad.touch_tap(horizon_client::gamepad::Button::South);
+                    }
+
+                    let can_cooldown = !cooldown_sync || scale >= 0.9;
+                    let can_crit = !crit_only_global || is_crit_ready;
+
+                    if can_cooldown && can_crit {
+                        if self.mod_menu.combat.should_attack_feature("silent_aura", &self.mod_menu.registry) {
+                            if target.index < self.mobs.len() {
+                                self.mod_attack_mob(target.index, silent);
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -8414,22 +8533,69 @@ impl Game<'_> {
                 );
 
                 if let Some(target) = target {
-                    if self.mod_menu.combat.should_attack(&self.mod_menu.registry) {
-                        if target.index < self.mobs.len() {
-                            self.attack_mob(target.index);
-                            self.swing_arm();
+                    let feat = self.mod_menu.registry.get_feature("combat_test");
+                    let cooldown_sync = feat.map_or(true, |f| f.get_bool_setting("cooldown_sync"));
+
+                    if crit_auto_jump && on_ground {
+                        self.pad.touch_tap(horizon_client::gamepad::Button::South);
+                    }
+
+                    let can_cooldown = !cooldown_sync || scale >= 0.9;
+                    let can_crit = !crit_only_global || is_crit_ready;
+
+                    if can_cooldown && can_crit {
+                        if self.mod_menu.combat.should_attack(&self.mod_menu.registry) {
+                            if target.index < self.mobs.len() {
+                                self.mod_attack_mob(target.index, false);
+                            }
                         }
                     }
                 }
             }
         }
 
-        // Trigger Bot:
+        // Trigger Bot: automatically attacks when crosshair is aimed directly at an entity
         if self.mod_menu.registry.is_enabled("trigger_bot") {
-            if let Some((index, _dist)) = self.mob_hit() {
-                if index < self.mobs.len() && self.mobs[index].health > 0.0 {
-                    self.attack_mob(index);
-                    self.swing_arm();
+            if let Some((index, distance)) = self.mob_hit() {
+                if index < self.mobs.len() && self.mobs[index].health > 0.0 && !self.mobs[index].removed {
+                    let target_kind = self.mobs[index].kind.id.clone();
+                    let display_name = self.mobs[index].custom_name.clone().unwrap_or_else(|| {
+                        target_kind.trim_start_matches("minecraft:").to_string()
+                    });
+                    self.mod_menu.combat.current_target = Some(crate::mod_menu::combat::TargetCandidate {
+                        index,
+                        id: self.mobs[index].id,
+                        name: display_name,
+                        kind: target_kind,
+                        position: [self.mobs[index].position.x, self.mobs[index].position.y, self.mobs[index].position.z],
+                        distance: distance as f32,
+                        health: self.mobs[index].health,
+                        max_health: self.mobs[index].kind.max_health,
+                        angle: 0.0,
+                    });
+
+                    let feat = self.mod_menu.registry.get_feature("trigger_bot");
+                    let require_weapon = feat.map_or(false, |f| f.get_bool_setting("require_weapon"));
+                    let cooldown_sync = feat.map_or(true, |f| f.get_bool_setting("cooldown_sync"));
+                    let crit_only = feat.map_or(false, |f| f.get_bool_setting("crit_only")) || crit_only_global;
+
+                    let is_weapon = !require_weapon || self.held().is_some_and(|s| {
+                        let id = s.item.as_ref();
+                        id.contains("sword") || id.contains("axe") || id.contains("spear") || id.contains("mace") || id.contains("trident")
+                    });
+
+                    if crit_auto_jump && on_ground {
+                        self.pad.touch_tap(horizon_client::gamepad::Button::South);
+                    }
+
+                    let can_cooldown = !cooldown_sync || scale >= 0.9;
+                    let can_crit = !crit_only || is_crit_ready;
+
+                    if is_weapon && can_cooldown && can_crit && self.before_block(distance) && self.held_range_allows(distance) {
+                        if self.mod_menu.combat.should_attack_feature("trigger_bot", &self.mod_menu.registry) {
+                            self.mod_attack_mob(index, false);
+                        }
+                    }
                 }
             }
         }

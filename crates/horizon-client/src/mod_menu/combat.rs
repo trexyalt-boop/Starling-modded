@@ -20,14 +20,25 @@ pub struct TargetCandidate {
 /// Combat controller managing target evaluation and rate-limited simulated attacks.
 pub struct CombatSystem {
     pub last_attack_time: Instant,
+    pub silent_aura_last_attack: Instant,
+    pub trigger_bot_last_attack: Instant,
     pub current_target: Option<TargetCandidate>,
+    pub is_falling: bool,
+    pub is_on_ground: bool,
+    pub attack_cooldown_scale: f32,
 }
 
 impl Default for CombatSystem {
     fn default() -> Self {
+        let now = Instant::now();
         Self {
-            last_attack_time: Instant::now(),
+            last_attack_time: now,
+            silent_aura_last_attack: now,
+            trigger_bot_last_attack: now,
             current_target: None,
+            is_falling: false,
+            is_on_ground: true,
+            attack_cooldown_scale: 1.0,
         }
     }
 }
@@ -37,9 +48,10 @@ impl CombatSystem {
         Self::default()
     }
 
-    /// Evaluates target candidates from the game's mob list based on configured settings.
-    pub fn find_best_target<'a, I>(
+    /// Evaluates target candidates for a specific combat feature.
+    pub fn find_target_for<'a, I>(
         &mut self,
+        feature_name: &str,
         registry: &FeatureRegistry,
         player_pos: [f64; 3],
         player_yaw: f32,
@@ -49,9 +61,8 @@ impl CombatSystem {
     where
         I: Iterator<Item = (usize, u32, &'a str, Option<&'a str>, [f64; 3], f32, f32)>,
     {
-        let feat = registry.get_feature("combat_test")?;
+        let feat = registry.get_feature(feature_name)?;
         if !feat.enabled {
-            self.current_target = None;
             return None;
         }
 
@@ -129,27 +140,55 @@ impl CombatSystem {
         }
 
         let best = candidates.into_iter().next();
-        self.current_target = best.clone();
+        if best.is_some() {
+            self.current_target = best.clone();
+        }
         best
     }
 
-    /// Checks if a rate-limited attack should be performed now based on APS setting.
-    pub fn should_attack(&mut self, registry: &FeatureRegistry) -> bool {
-        let feat = match registry.get_feature("combat_test") {
+    /// Evaluates target candidates from the game's mob list based on configured settings (combat_test).
+    pub fn find_best_target<'a, I>(
+        &mut self,
+        registry: &FeatureRegistry,
+        player_pos: [f64; 3],
+        player_yaw: f32,
+        player_pitch: f32,
+        mobs_iter: I,
+    ) -> Option<TargetCandidate>
+    where
+        I: Iterator<Item = (usize, u32, &'a str, Option<&'a str>, [f64; 3], f32, f32)>,
+    {
+        self.find_target_for("combat_test", registry, player_pos, player_yaw, player_pitch, mobs_iter)
+    }
+
+    /// Checks if a rate-limited attack should be performed now based on APS setting for a given feature.
+    pub fn should_attack_feature(&mut self, feature_name: &str, registry: &FeatureRegistry) -> bool {
+        let feat = match registry.get_feature(feature_name) {
             Some(f) if f.enabled => f,
             _ => return false,
         };
 
         let aps = feat.get_float_setting("aps").clamp(1.0, 20.0);
         let interval = Duration::from_secs_f32(1.0 / aps);
-
         let now = Instant::now();
-        if now.duration_since(self.last_attack_time) >= interval {
-            self.last_attack_time = now;
+
+        let last_time = match feature_name {
+            "silent_aura" => &mut self.silent_aura_last_attack,
+            "trigger_bot" => &mut self.trigger_bot_last_attack,
+            _ => &mut self.last_attack_time,
+        };
+
+        if now.duration_since(*last_time) >= interval {
+            *last_time = now;
             true
         } else {
             false
         }
+    }
+
+    /// Checks if a rate-limited attack should be performed now based on APS setting (combat_test).
+    pub fn should_attack(&mut self, registry: &FeatureRegistry) -> bool {
+        self.should_attack_feature("combat_test", registry)
     }
 }
 

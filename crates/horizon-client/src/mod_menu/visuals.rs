@@ -300,3 +300,50 @@ pub fn draw_watermark(batch: &mut HudBatch, atlas: &HudAtlas, registry: &Feature
     batch.fill(atlas, 4.0, 4.0, 2.0, 13.0, rgba(64, 128, 255, 255));
     batch.text(atlas, brand, 8.0, 6.0, rgba(240, 245, 255, 255), true);
 }
+
+/// Renders the Critical Hit timing indicator badge below the crosshair.
+pub fn draw_crit_indicator(
+    batch: &mut HudBatch,
+    atlas: &HudAtlas,
+    registry: &FeatureRegistry,
+    screen_w: f32,
+    screen_h: f32,
+    falling: bool,
+    on_ground: bool,
+    scale: f32,
+) {
+    if !registry.is_enabled("crit_assist") {
+        return;
+    }
+    let feat = match registry.get_feature("crit_assist") {
+        Some(f) if f.enabled => f,
+        _ => return,
+    };
+    if !feat.get_bool_setting("hud_indicator") {
+        return;
+    }
+
+    let is_crit_ready = falling && !on_ground && scale >= 0.9;
+    let (text, text_col, bg_col, border_col) = if is_crit_ready {
+        ("CRIT READY", rgba(255, 220, 50, 255), rgba(40, 35, 10, 220), rgba(255, 200, 30, 255))
+    } else if !on_ground {
+        ("WAIT FOR FALL", rgba(255, 160, 60, 255), rgba(35, 25, 15, 200), rgba(200, 120, 40, 200))
+    } else {
+        ("JUMP TO CRIT", rgba(180, 190, 205, 180), rgba(20, 24, 32, 160), rgba(60, 70, 90, 160))
+    };
+
+    let tw = HudBatch::text_width(atlas, text);
+    let pad_x = 8.0;
+    let badge_w = tw + pad_x * 2.0;
+    let badge_h = 14.0;
+    let badge_x = (screen_w - badge_w) * 0.5;
+    let badge_y = screen_h * 0.5 + 24.0;
+
+    batch.fill(atlas, badge_x, badge_y, badge_w, badge_h, bg_col);
+    batch.fill(atlas, badge_x, badge_y, badge_w, 1.0, border_col);
+    batch.fill(atlas, badge_x, badge_y + badge_h - 1.0, badge_w, 1.0, border_col);
+    batch.fill(atlas, badge_x, badge_y, 1.0, badge_h, border_col);
+    batch.fill(atlas, badge_x + badge_w - 1.0, badge_y, 1.0, badge_h, border_col);
+
+    batch.text(atlas, text, badge_x + pad_x, badge_y + 3.0, text_col, true);
+}

@@ -9404,6 +9404,20 @@ impl Game<'_> {
         instant
     }
 
+    pub(super) fn remote_attack_mob(&mut self, mob: usize, silent: bool) {
+        if mob >= self.mobs.len() {
+            return;
+        }
+        let id = self.mobs[mob].id as i32;
+        self.send(S::Attack(play::Attack { id }));
+        self.remote_player_attack(mob);
+        self.reset_attack_strength();
+        if !silent {
+            self.swing_arm();
+            self.send(S::Punch(Empty));
+        }
+    }
+
     /// `MultiPlayerGameMode.attack` runs `Player.attack` on this client too.
     /// For a mob `hurtOrSimulate` fails here (`Entity.hurtClient`), so the
     /// hit has no attacker side; but `RemotePlayer.hurtClient` is true, so a

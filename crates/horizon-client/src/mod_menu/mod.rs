@@ -131,6 +131,18 @@ impl ModMenu {
             fps,
         );
 
+        // Critical Hit timing badge
+        visuals::draw_crit_indicator(
+            batch,
+            atlas,
+            &self.registry,
+            screen_w,
+            screen_h,
+            self.combat.is_falling,
+            self.combat.is_on_ground,
+            self.combat.attack_cooldown_scale,
+        );
+
         let view_proj = glam::Mat4::from_cols_array(&cam_proj) * glam::Mat4::from_cols_array(&cam_view);
 
         let esp_box = self.registry.is_enabled("esp_box");
@@ -246,7 +258,7 @@ impl ModMenu {
     }
 }
 
-fn combat_is_passive(kind: &str) -> bool {
+pub fn combat_is_passive(kind: &str) -> bool {
     let k = kind.trim_start_matches("minecraft:");
     matches!(
         k,

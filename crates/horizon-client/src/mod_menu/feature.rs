@@ -236,6 +236,28 @@ impl FeatureRegistry {
         ));
 
         self.features.push(Feature::new(
+            "silent_aura",
+            "Silent Aura",
+            "Automatically attacks entities within range silently without client arm animation",
+            FeatureCategory::Combat,
+            false,
+            vec![
+                Setting::float("range", "Attack Range", "Reach distance in meters", 3.8, 2.0, 6.0, 0.1),
+                Setting::float("aps", "Attacks / Sec", "Rate-limited attacks per second", 8.0, 1.0, 20.0, 1.0),
+                Setting::choice("priority", "Target Priority", "Entity selection order", 0, &[
+                    "Closest",
+                    "Lowest HP",
+                    "Crosshair",
+                ]),
+                Setting::bool("target_monsters", "Target Monsters", "Attack hostile mobs", true),
+                Setting::bool("target_players", "Target Players", "Attack other player entities", true),
+                Setting::bool("target_passives", "Target Passives", "Attack animals and friendly mobs", false),
+                Setting::bool("cooldown_sync", "Weapon Cooldown", "Wait for full 1.9+ weapon charge (0.9+ scale)", true),
+                Setting::bool("silent_swing", "Silent Swing", "Suppress local client arm swing animation", true),
+            ],
+        ));
+
+        self.features.push(Feature::new(
             "trigger_bot",
             "Trigger Bot",
             "Automatically simulates attacks when looking directly at an entity",
@@ -243,7 +265,9 @@ impl FeatureRegistry {
             false,
             vec![
                 Setting::float("delay", "Attack Delay", "Delay after aiming in ms", 50.0, 0.0, 250.0, 10.0),
-                Setting::bool("require_weapon", "Require Weapon", "Only trigger when holding a weapon", true),
+                Setting::bool("require_weapon", "Require Weapon", "Only trigger when holding a weapon", false),
+                Setting::bool("cooldown_sync", "Weapon Cooldown", "Wait for full weapon charge (0.9+ scale)", true),
+                Setting::bool("crit_only", "Critical Only", "Only attack when in critical fall state", false),
             ],
         ));
 
@@ -254,7 +278,9 @@ impl FeatureRegistry {
             FeatureCategory::Combat,
             false,
             vec![
-                Setting::bool("hud_indicator", "HUD Indicator", "Visual indicator when in crit fall state", true),
+                Setting::bool("hud_indicator", "HUD Indicator", "Visual badge when in critical fall state", true),
+                Setting::bool("crit_only", "Critical Only", "Prevent combat attacks unless in crit state", false),
+                Setting::bool("auto_jump", "Auto Jump", "Automatically jump in combat to land crits", false),
             ],
         ));
 
