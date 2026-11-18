@@ -3,7 +3,7 @@
 
 use super::feature::FeatureRegistry;
 use horizon_client_render::hud::{HudAtlas, HudBatch, rgba};
-use horizon_core::geometry::{Aabb, Vec3};
+use horizon_core::geometry::Aabb;
 
 /// Projects a 3D world coordinate to 2D GUI coordinates on the HUD.
 pub fn project_point(

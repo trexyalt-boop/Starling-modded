@@ -5,21 +5,25 @@ use super::feature::{FeatureCategory, FeatureRegistry, SettingValue};
 use horizon_client_render::hud::{HudAtlas, HudBatch, rgba};
 use winit::event::TouchPhase;
 
+const fn c_rgba(r: u8, g: u8, b: u8, a: u8) -> u32 {
+    (a as u32) << 24 | (b as u32) << 16 | (g as u32) << 8 | (r as u32)
+}
+
 // Dark theme color palette
-const COLOR_BG_WINDOW: u32 = rgba(15, 17, 24, 245);
-const COLOR_BG_HEADER: u32 = rgba(22, 25, 36, 255);
-const COLOR_BG_SIDEBAR: u32 = rgba(18, 20, 29, 255);
-const COLOR_BG_CARD: u32 = rgba(25, 28, 40, 235);
-const COLOR_BG_CARD_EXPANDED: u32 = rgba(20, 22, 32, 245);
+const COLOR_BG_WINDOW: u32 = c_rgba(15, 17, 24, 245);
+const COLOR_BG_HEADER: u32 = c_rgba(22, 25, 36, 255);
+const COLOR_BG_SIDEBAR: u32 = c_rgba(18, 20, 29, 255);
+const COLOR_BG_CARD: u32 = c_rgba(25, 28, 40, 235);
+const COLOR_BG_CARD_EXPANDED: u32 = c_rgba(20, 22, 32, 245);
 
-const COLOR_ACCENT: u32 = rgba(64, 128, 255, 255);
-const COLOR_ACCENT_HOVER: u32 = rgba(90, 150, 255, 255);
-const COLOR_TOGGLE_ON: u32 = rgba(46, 204, 113, 255);
-const COLOR_TOGGLE_OFF: u32 = rgba(55, 60, 75, 255);
+const COLOR_ACCENT: u32 = c_rgba(64, 128, 255, 255);
+const COLOR_ACCENT_HOVER: u32 = c_rgba(90, 150, 255, 255);
+const COLOR_TOGGLE_ON: u32 = c_rgba(46, 204, 113, 255);
+const COLOR_TOGGLE_OFF: u32 = c_rgba(55, 60, 75, 255);
 
-const COLOR_TEXT_PRIMARY: u32 = rgba(245, 248, 255, 255);
-const COLOR_TEXT_SECONDARY: u32 = rgba(155, 165, 185, 255);
-const COLOR_BORDER: u32 = rgba(40, 45, 62, 200);
+const COLOR_TEXT_PRIMARY: u32 = c_rgba(245, 248, 255, 255);
+const COLOR_TEXT_SECONDARY: u32 = c_rgba(155, 165, 185, 255);
+const COLOR_BORDER: u32 = c_rgba(40, 45, 62, 200);
 
 /// UI state managing window positioning, dragging, category selection, and touch events.
 pub struct UiState {

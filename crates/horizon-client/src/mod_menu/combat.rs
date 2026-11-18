@@ -1,7 +1,6 @@
 //! Modular combat testing and target selection framework.
 
 use super::feature::FeatureRegistry;
-use horizon_core::geometry::Vec3;
 use std::time::{Duration, Instant};
 
 /// Information on an entity detected by the combat system.

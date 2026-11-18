@@ -8364,7 +8364,7 @@ impl Game<'_> {
         // Fast Place: reset block placement delay
         if self.mod_menu.registry.is_enabled("fast_place") {
             let delay_ticks = self.mod_menu.registry.get_feature("fast_place")
-                .map_or(0.0, |f| f.get_float_setting("delay_ticks")) as i32;
+                .map_or(0.0, |f| f.get_float_setting("delay_ticks")) as u32;
             if self.use_delay > delay_ticks {
                 self.use_delay = delay_ticks;
             }

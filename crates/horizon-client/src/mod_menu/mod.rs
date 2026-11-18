@@ -35,7 +35,7 @@ impl Default for ModMenu {
 impl ModMenu {
     /// Creates and initializes the mod menu, loading persistent settings from disk.
     pub fn new() -> Self {
-        let mut config = ModConfig::load();
+        let config = ModConfig::load();
         let mut registry = FeatureRegistry::new();
         registry.load_from_config(&config);
 
@@ -216,7 +216,7 @@ impl ModMenu {
 
                     // Tracers
                     if show_tracers {
-                        let bottom_x = screen_w * 0.5;
+                        let _bottom_x = screen_w * 0.5;
                         let bottom_y = screen_h;
                         batch.fill(atlas, x0 + bw * 0.5, y1, 1.5, (bottom_y - y1).max(1.0), rgba(color_monster[0], color_monster[1], color_monster[2], 120));
                     }
