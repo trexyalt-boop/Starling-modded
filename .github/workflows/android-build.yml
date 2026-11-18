@@ -1,0 +1,116 @@
+name: Build Starling Android APK (ARM64)
+
+on:
+  push:
+    branches: [starling]
+    paths-ignore:
+      - '**.md'
+      - '.gitignore'
+  pull_request:
+    branches: [starling]
+    paths-ignore:
+      - '**.md'
+      - '.gitignore'
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: 'Cargo profile to build (quick for fast iteration, fast for optimization)'
+        required: true
+        default: 'quick'
+        type: choice
+        options:
+          - quick
+          - fast
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-arm64-apk:
+    name: Build ARM64 APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: starling
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up Java 25 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Install Android SDK Build-Tools, Platform 36 and NDK
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install \
+            "build-tools;35.0.0" "platforms;android-36" "ndk;28.2.13676358" > /dev/null
+
+      - name: Set up Rust toolchain & cargo-ndk
+        run: |
+          rustup toolchain install stable --profile minimal --target aarch64-linux-android
+          rustup default stable
+          cargo install cargo-ndk --version 3.5.4 --locked
+
+      - name: Cache Cargo & Rust artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: android-arm64-v8a
+          save-if: ${{ github.ref == 'refs/heads/starling' }}
+
+      - name: Configure swap memory
+        run: |
+          sudo swapoff -a || true
+          where=/mnt size=10G
+          avail=$(df --output=avail -BG "$where" 2>/dev/null | tail -1 | tr -dc 0-9)
+          if [ "${avail:-0}" -lt 15 ]; then where=$RUNNER_TEMP; fi
+          sudo fallocate -l "$size" "$where/build.swap" || sudo dd if=/dev/zero of="$where/build.swap" bs=1M count=10240
+          sudo chmod 600 "$where/build.swap"
+          sudo mkswap "$where/build.swap" > /dev/null
+          sudo swapon "$where/build.swap"
+          free -h
+
+      - name: Build Starling ARM64 APK
+        env:
+          PROFILE: ${{ inputs.profile || 'quick' }}
+        run: |
+          BUILD_PROFILE="${PROFILE:-quick}"
+          echo "Building with profile: $BUILD_PROFILE"
+          python3 packaging/android/build_apk.py --abi arm64-v8a --profile "$BUILD_PROFILE"
+
+      - name: Verify APK produced
+        run: |
+          apk_count=$(find target/android -maxdepth 1 -name "starling-*.apk" 2>/dev/null | wc -l)
+          if [ "$apk_count" -eq 0 ]; then
+            echo "Error: No APK found in target/android/"
+            exit 1
+          fi
+          echo "Successfully generated $apk_count APK(s):"
+          ls -lh target/android/starling-*.apk
+
+      - name: Upload Starling APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Starling-Mod-Android-arm64
+          path: target/android/starling-*.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload Debug Symbols
+        uses: actions/upload-artifact@v4
+        with:
+          name: Starling-Mod-Symbols-arm64
+          path: target/android/lib*-symbols.so
+          if-no-files-found: ignore
+          retention-days: 7
