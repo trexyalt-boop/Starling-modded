@@ -95,9 +95,23 @@ pub fn draw_rect_outline(
     let shadow = rgba(0, 0, 0, 180);
     // Outer shadow for high contrast
     batch.fill(atlas, x - 1.0, y - 1.0, w + 2.0, thickness + 2.0, shadow);
-    batch.fill(atlas, x - 1.0, y + h - thickness - 1.0, w + 2.0, thickness + 2.0, shadow);
+    batch.fill(
+        atlas,
+        x - 1.0,
+        y + h - thickness - 1.0,
+        w + 2.0,
+        thickness + 2.0,
+        shadow,
+    );
     batch.fill(atlas, x - 1.0, y - 1.0, thickness + 2.0, h + 2.0, shadow);
-    batch.fill(atlas, x + w - thickness - 1.0, y - 1.0, thickness + 2.0, h + 2.0, shadow);
+    batch.fill(
+        atlas,
+        x + w - thickness - 1.0,
+        y - 1.0,
+        thickness + 2.0,
+        h + 2.0,
+        shadow,
+    );
 
     // Main line
     batch.fill(atlas, x, y, w, thickness, color);
@@ -127,20 +141,62 @@ pub fn draw_corner_box(
     batch.fill(atlas, x, y, thickness, len, color);
 
     // Top-right
-    batch.fill(atlas, x + w - len - 1.0, y - 1.0, len + 2.0, thickness + 2.0, shadow);
-    batch.fill(atlas, x + w - thickness - 1.0, y - 1.0, thickness + 2.0, len + 2.0, shadow);
+    batch.fill(
+        atlas,
+        x + w - len - 1.0,
+        y - 1.0,
+        len + 2.0,
+        thickness + 2.0,
+        shadow,
+    );
+    batch.fill(
+        atlas,
+        x + w - thickness - 1.0,
+        y - 1.0,
+        thickness + 2.0,
+        len + 2.0,
+        shadow,
+    );
     batch.fill(atlas, x + w - len, y, len, thickness, color);
     batch.fill(atlas, x + w - thickness, y, thickness, len, color);
 
     // Bottom-left
-    batch.fill(atlas, x - 1.0, y + h - thickness - 1.0, len + 2.0, thickness + 2.0, shadow);
-    batch.fill(atlas, x - 1.0, y + h - len - 1.0, thickness + 2.0, len + 2.0, shadow);
+    batch.fill(
+        atlas,
+        x - 1.0,
+        y + h - thickness - 1.0,
+        len + 2.0,
+        thickness + 2.0,
+        shadow,
+    );
+    batch.fill(
+        atlas,
+        x - 1.0,
+        y + h - len - 1.0,
+        thickness + 2.0,
+        len + 2.0,
+        shadow,
+    );
     batch.fill(atlas, x, y + h - thickness, len, thickness, color);
     batch.fill(atlas, x, y + h - len, thickness, len, color);
 
     // Bottom-right
-    batch.fill(atlas, x + w - len - 1.0, y + h - thickness - 1.0, len + 2.0, thickness + 2.0, shadow);
-    batch.fill(atlas, x + w - thickness - 1.0, y + h - len - 1.0, thickness + 2.0, len + 2.0, shadow);
+    batch.fill(
+        atlas,
+        x + w - len - 1.0,
+        y + h - thickness - 1.0,
+        len + 2.0,
+        thickness + 2.0,
+        shadow,
+    );
+    batch.fill(
+        atlas,
+        x + w - thickness - 1.0,
+        y + h - len - 1.0,
+        thickness + 2.0,
+        len + 2.0,
+        shadow,
+    );
     batch.fill(atlas, x + w - len, y + h - thickness, len, thickness, color);
     batch.fill(atlas, x + w - thickness, y + h - len, thickness, len, color);
 }
@@ -161,7 +217,14 @@ pub fn draw_health_bar(
     let bar_h = box_h.max(6.0);
 
     // Background track
-    batch.fill(atlas, bar_x - 1.0, bar_y - 1.0, bar_w + 2.0, bar_h + 2.0, rgba(0, 0, 0, 180));
+    batch.fill(
+        atlas,
+        bar_x - 1.0,
+        bar_y - 1.0,
+        bar_w + 2.0,
+        bar_h + 2.0,
+        rgba(0, 0, 0, 180),
+    );
     batch.fill(atlas, bar_x, bar_y, bar_w, bar_h, rgba(30, 30, 35, 200));
 
     // Filled health portion
@@ -205,9 +268,23 @@ pub fn draw_target_hud(
     // Card background
     batch.fill(atlas, base_x, base_y, card_w, card_h, rgba(16, 18, 26, 225));
     batch.fill(atlas, base_x, base_y, card_w, 2.0, rgba(64, 128, 255, 255)); // Top accent line
-    batch.fill(atlas, base_x, base_y + card_h - 1.0, card_w, 1.0, rgba(40, 44, 60, 180));
+    batch.fill(
+        atlas,
+        base_x,
+        base_y + card_h - 1.0,
+        card_w,
+        1.0,
+        rgba(40, 44, 60, 180),
+    );
     batch.fill(atlas, base_x, base_y, 1.0, card_h, rgba(40, 44, 60, 180));
-    batch.fill(atlas, base_x + card_w - 1.0, base_y, 1.0, card_h, rgba(40, 44, 60, 180));
+    batch.fill(
+        atlas,
+        base_x + card_w - 1.0,
+        base_y,
+        1.0,
+        card_h,
+        rgba(40, 44, 60, 180),
+    );
 
     // Entity name
     let clean_name = if !target_name.is_empty() {
@@ -215,18 +292,46 @@ pub fn draw_target_hud(
     } else {
         target_kind.trim_start_matches("minecraft:")
     };
-    batch.text(atlas, clean_name, base_x + 8.0, base_y + 6.0, rgba(255, 255, 255, 255), true);
+    batch.text(
+        atlas,
+        clean_name,
+        base_x + 8.0,
+        base_y + 6.0,
+        rgba(255, 255, 255, 255),
+        true,
+    );
 
     // Distance badge
     let dist_str = format!("{distance:.1}m");
     let dist_w = HudBatch::text_width(atlas, &dist_str);
-    batch.fill(atlas, base_x + card_w - dist_w - 12.0, base_y + 5.0, dist_w + 6.0, 11.0, rgba(35, 40, 55, 220));
-    batch.text(atlas, &dist_str, base_x + card_w - dist_w - 9.0, base_y + 6.0, rgba(200, 220, 255, 255), false);
+    batch.fill(
+        atlas,
+        base_x + card_w - dist_w - 12.0,
+        base_y + 5.0,
+        dist_w + 6.0,
+        11.0,
+        rgba(35, 40, 55, 220),
+    );
+    batch.text(
+        atlas,
+        &dist_str,
+        base_x + card_w - dist_w - 9.0,
+        base_y + 6.0,
+        rgba(200, 220, 255, 255),
+        false,
+    );
 
     // Health text and bar
     let pct = (health / max_health.max(1.0)).clamp(0.0, 1.0);
     let hp_str = format!("HP: {health:.0}/{max_health:.0}");
-    batch.text(atlas, &hp_str, base_x + 8.0, base_y + 20.0, rgba(170, 180, 200, 255), false);
+    batch.text(
+        atlas,
+        &hp_str,
+        base_x + 8.0,
+        base_y + 20.0,
+        rgba(170, 180, 200, 255),
+        false,
+    );
 
     if feat.get_bool_setting("show_hp_bar") {
         let bar_x = base_x + 8.0;
@@ -271,17 +376,30 @@ pub fn draw_coords_hud(
     let mut lines = vec![coords_line, facing_line];
     if let Some(f) = registry.get_feature("coords_hud") {
         if f.get_bool_setting("show_biome") && !biome_name.is_empty() {
-            lines.push(format!("Biome: {}", biome_name.trim_start_matches("minecraft:")));
+            lines.push(format!(
+                "Biome: {}",
+                biome_name.trim_start_matches("minecraft:")
+            ));
         }
         if f.get_bool_setting("show_fps") {
             lines.push(format!("FPS: {:.0}", fps));
         }
     }
 
-    let max_w = lines.iter().map(|l| HudBatch::text_width(atlas, l)).fold(0.0f32, f32::max);
+    let max_w = lines
+        .iter()
+        .map(|l| HudBatch::text_width(atlas, l))
+        .fold(0.0f32, f32::max);
 
     // Translucent dark backing for readability
-    batch.fill(atlas, x - 2.0, y - 2.0, max_w + 6.0, lines.len() as f32 * line_h + 3.0, rgba(0, 0, 0, 120));
+    batch.fill(
+        atlas,
+        x - 2.0,
+        y - 2.0,
+        max_w + 6.0,
+        lines.len() as f32 * line_h + 3.0,
+        rgba(0, 0, 0, 120),
+    );
 
     for line in lines {
         batch.text(atlas, &line, x, y, rgba(230, 235, 245, 255), true);
@@ -325,11 +443,26 @@ pub fn draw_crit_indicator(
 
     let is_crit_ready = falling && !on_ground && scale >= 0.9;
     let (text, text_col, bg_col, border_col) = if is_crit_ready {
-        ("CRIT READY", rgba(255, 220, 50, 255), rgba(40, 35, 10, 220), rgba(255, 200, 30, 255))
+        (
+            "CRIT READY",
+            rgba(255, 220, 50, 255),
+            rgba(40, 35, 10, 220),
+            rgba(255, 200, 30, 255),
+        )
     } else if !on_ground {
-        ("WAIT FOR FALL", rgba(255, 160, 60, 255), rgba(35, 25, 15, 200), rgba(200, 120, 40, 200))
+        (
+            "WAIT FOR FALL",
+            rgba(255, 160, 60, 255),
+            rgba(35, 25, 15, 200),
+            rgba(200, 120, 40, 200),
+        )
     } else {
-        ("JUMP TO CRIT", rgba(180, 190, 205, 180), rgba(20, 24, 32, 160), rgba(60, 70, 90, 160))
+        (
+            "JUMP TO CRIT",
+            rgba(180, 190, 205, 180),
+            rgba(20, 24, 32, 160),
+            rgba(60, 70, 90, 160),
+        )
     };
 
     let tw = HudBatch::text_width(atlas, text);
@@ -341,9 +474,23 @@ pub fn draw_crit_indicator(
 
     batch.fill(atlas, badge_x, badge_y, badge_w, badge_h, bg_col);
     batch.fill(atlas, badge_x, badge_y, badge_w, 1.0, border_col);
-    batch.fill(atlas, badge_x, badge_y + badge_h - 1.0, badge_w, 1.0, border_col);
+    batch.fill(
+        atlas,
+        badge_x,
+        badge_y + badge_h - 1.0,
+        badge_w,
+        1.0,
+        border_col,
+    );
     batch.fill(atlas, badge_x, badge_y, 1.0, badge_h, border_col);
-    batch.fill(atlas, badge_x + badge_w - 1.0, badge_y, 1.0, badge_h, border_col);
+    batch.fill(
+        atlas,
+        badge_x + badge_w - 1.0,
+        badge_y,
+        1.0,
+        badge_h,
+        border_col,
+    );
 
     batch.text(atlas, text, badge_x + pad_x, badge_y + 3.0, text_col, true);
 }

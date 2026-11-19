@@ -744,7 +744,12 @@ impl Game<'_> {
         let scale = self.renderer.as_ref().map_or(1.0, |r| {
             horizon_client_render::hud::HudBatch::new([r.config.width, r.config.height]).scale
         });
-        if self.mod_menu.touch_event(t.phase, [t.location.x as f32, t.location.y as f32], t.id, scale) {
+        if self.mod_menu.touch_event(
+            t.phase,
+            [t.location.x as f32, t.location.y as f32],
+            t.id,
+            scale,
+        ) {
             return true;
         }
         let p = [t.location.x as f32, t.location.y as f32];

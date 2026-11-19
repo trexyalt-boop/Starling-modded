@@ -134,7 +134,14 @@ pub fn draw_floating_button(batch: &mut HudBatch, atlas: &HudAtlas, state: &UiSt
     let bh = 20.0;
 
     // Glowing border outline
-    batch.fill(atlas, bx - 1.0, by - 1.0, bw + 2.0, bh + 2.0, rgba(64, 128, 255, 180));
+    batch.fill(
+        atlas,
+        bx - 1.0,
+        by - 1.0,
+        bw + 2.0,
+        bh + 2.0,
+        rgba(64, 128, 255, 180),
+    );
     // Dark pill surface
     let surface_color = if state.open {
         rgba(30, 45, 75, 240)
@@ -173,7 +180,11 @@ pub fn draw_menu_window(
     let wx = state.window_x;
     let wy = state.window_y;
     let ww = state.window_w;
-    let wh = if state.collapsed { 24.0 } else { state.window_h };
+    let wh = if state.collapsed {
+        24.0
+    } else {
+        state.window_h
+    };
 
     // --- Window Outer Shadow & Background ---
     batch.fill(atlas, wx - 1.0, wy - 1.0, ww + 2.0, wh + 2.0, COLOR_BORDER);
@@ -194,12 +205,40 @@ pub fn draw_menu_window(
     let min_x = close_x - close_btn_w - 4.0;
 
     // Minimize [-]
-    batch.fill(atlas, min_x, wy + 3.0, close_btn_w, 18.0, rgba(40, 45, 60, 200));
-    batch.text(atlas, "—", min_x + 5.0, wy + 6.0, COLOR_TEXT_SECONDARY, false);
+    batch.fill(
+        atlas,
+        min_x,
+        wy + 3.0,
+        close_btn_w,
+        18.0,
+        rgba(40, 45, 60, 200),
+    );
+    batch.text(
+        atlas,
+        "—",
+        min_x + 5.0,
+        wy + 6.0,
+        COLOR_TEXT_SECONDARY,
+        false,
+    );
 
     // Close [✕]
-    batch.fill(atlas, close_x, wy + 3.0, close_btn_w, 18.0, rgba(180, 50, 50, 220));
-    batch.text(atlas, "✕", close_x + 5.0, wy + 6.0, COLOR_TEXT_PRIMARY, false);
+    batch.fill(
+        atlas,
+        close_x,
+        wy + 3.0,
+        close_btn_w,
+        18.0,
+        rgba(180, 50, 50, 220),
+    );
+    batch.text(
+        atlas,
+        "✕",
+        close_x + 5.0,
+        wy + 6.0,
+        COLOR_TEXT_PRIMARY,
+        false,
+    );
 
     if state.collapsed {
         return;
@@ -210,7 +249,14 @@ pub fn draw_menu_window(
     let content_y = wy + title_h;
     let content_h = wh - title_h;
     batch.fill(atlas, wx, content_y, sidebar_w, content_h, COLOR_BG_SIDEBAR);
-    batch.fill(atlas, wx + sidebar_w - 1.0, content_y, 1.0, content_h, COLOR_BORDER);
+    batch.fill(
+        atlas,
+        wx + sidebar_w - 1.0,
+        content_y,
+        1.0,
+        content_h,
+        COLOR_BORDER,
+    );
 
     let tab_h = 24.0;
     for (i, cat) in FeatureCategory::ALL.iter().enumerate() {
@@ -244,15 +290,32 @@ pub fn draw_menu_window(
 
     // Search Bar / Active Header
     let search_h = 16.0;
-    batch.fill(atlas, panel_x, panel_y, panel_w, search_h, rgba(20, 22, 32, 220));
+    batch.fill(
+        atlas,
+        panel_x,
+        panel_y,
+        panel_w,
+        search_h,
+        rgba(20, 22, 32, 220),
+    );
     batch.fill(atlas, panel_x, panel_y, 1.0, search_h, COLOR_BORDER);
 
     let search_display = if state.search_query.is_empty() {
-        format!("Category: {} (Tap to toggle)", state.active_category.display_name())
+        format!(
+            "Category: {} (Tap to toggle)",
+            state.active_category.display_name()
+        )
     } else {
         format!("Search: {}", state.search_query)
     };
-    batch.text(atlas, &search_display, panel_x + 6.0, panel_y + 4.0, COLOR_TEXT_SECONDARY, false);
+    batch.text(
+        atlas,
+        &search_display,
+        panel_x + 6.0,
+        panel_y + 4.0,
+        COLOR_TEXT_SECONDARY,
+        false,
+    );
 
     // List of features in active category
     let list_y = panel_y + search_h + 4.0;
@@ -264,7 +327,8 @@ pub fn draw_menu_window(
         // Filter by category or search query
         if !state.search_query.is_empty() {
             let q = state.search_query.to_lowercase();
-            if !feature.name.to_lowercase().contains(&q) && !feature.id.to_lowercase().contains(&q) {
+            if !feature.name.to_lowercase().contains(&q) && !feature.id.to_lowercase().contains(&q)
+            {
                 continue;
             }
         } else if feature.category != state.active_category {
@@ -286,11 +350,33 @@ pub fn draw_menu_window(
             };
 
             batch.fill(atlas, panel_x, current_y, panel_w, card_h, card_bg);
-            batch.fill(atlas, panel_x, current_y, 2.0, card_h, if feature.enabled { COLOR_TOGGLE_ON } else { COLOR_BORDER });
+            batch.fill(
+                atlas,
+                panel_x,
+                current_y,
+                2.0,
+                card_h,
+                if feature.enabled {
+                    COLOR_TOGGLE_ON
+                } else {
+                    COLOR_BORDER
+                },
+            );
 
             // Feature Name
-            let name_color = if feature.enabled { COLOR_TEXT_PRIMARY } else { COLOR_TEXT_SECONDARY };
-            batch.text(atlas, &feature.name, panel_x + 8.0, current_y + 4.0, name_color, feature.enabled);
+            let name_color = if feature.enabled {
+                COLOR_TEXT_PRIMARY
+            } else {
+                COLOR_TEXT_SECONDARY
+            };
+            batch.text(
+                atlas,
+                &feature.name,
+                panel_x + 8.0,
+                current_y + 4.0,
+                name_color,
+                feature.enabled,
+            );
 
             // Toggle switch on the right
             let switch_w = 34.0;
@@ -298,36 +384,92 @@ pub fn draw_menu_window(
             let switch_x = panel_x + panel_w - switch_w - 6.0;
             let switch_y = current_y + 4.0;
 
-            let switch_bg = if feature.enabled { COLOR_TOGGLE_ON } else { COLOR_TOGGLE_OFF };
+            let switch_bg = if feature.enabled {
+                COLOR_TOGGLE_ON
+            } else {
+                COLOR_TOGGLE_OFF
+            };
             batch.fill(atlas, switch_x, switch_y, switch_w, switch_h, switch_bg);
 
             // Toggle knob
-            let knob_x = if feature.enabled { switch_x + switch_w - 14.0 } else { switch_x + 2.0 };
-            batch.fill(atlas, knob_x, switch_y + 2.0, 12.0, switch_h - 4.0, rgba(255, 255, 255, 255));
+            let knob_x = if feature.enabled {
+                switch_x + switch_w - 14.0
+            } else {
+                switch_x + 2.0
+            };
+            batch.fill(
+                atlas,
+                knob_x,
+                switch_y + 2.0,
+                12.0,
+                switch_h - 4.0,
+                rgba(255, 255, 255, 255),
+            );
 
             let status_text = if feature.enabled { "ON" } else { "OFF" };
-            let st_color = if feature.enabled { rgba(20, 30, 20, 255) } else { rgba(180, 185, 195, 255) };
-            batch.text(atlas, status_text, switch_x + 6.0, switch_y + 4.0, st_color, false);
+            let st_color = if feature.enabled {
+                rgba(20, 30, 20, 255)
+            } else {
+                rgba(180, 185, 195, 255)
+            };
+            batch.text(
+                atlas,
+                status_text,
+                switch_x + 6.0,
+                switch_y + 4.0,
+                st_color,
+                false,
+            );
 
             // Options Expander Button if feature has settings
             if !feature.settings.is_empty() {
                 let opt_btn_w = 16.0;
                 let opt_x = switch_x - opt_btn_w - 4.0;
-                batch.fill(atlas, opt_x, switch_y, opt_btn_w, switch_h, rgba(35, 40, 55, 200));
+                batch.fill(
+                    atlas,
+                    opt_x,
+                    switch_y,
+                    opt_btn_w,
+                    switch_h,
+                    rgba(35, 40, 55, 200),
+                );
                 let opt_char = if feature.expanded { "▲" } else { "▼" };
-                batch.text(atlas, opt_char, opt_x + 4.0, switch_y + 4.0, COLOR_TEXT_SECONDARY, false);
+                batch.text(
+                    atlas,
+                    opt_char,
+                    opt_x + 4.0,
+                    switch_y + 4.0,
+                    COLOR_TEXT_SECONDARY,
+                    false,
+                );
             }
 
             // Expanded settings rows
             if feature.expanded {
                 let mut set_y = current_y + 26.0;
                 for setting in &feature.settings {
-                    batch.fill(atlas, panel_x + 8.0, set_y, panel_w - 16.0, 1.0, rgba(40, 45, 60, 150));
+                    batch.fill(
+                        atlas,
+                        panel_x + 8.0,
+                        set_y,
+                        panel_w - 16.0,
+                        1.0,
+                        rgba(40, 45, 60, 150),
+                    );
 
                     match &setting.value {
-                        SettingValue::Float { value, min, max, .. } => {
+                        SettingValue::Float {
+                            value, min, max, ..
+                        } => {
                             let label = format!("{}: {:.1}", setting.name, value);
-                            batch.text(atlas, &label, panel_x + 10.0, set_y + 4.0, COLOR_TEXT_SECONDARY, false);
+                            batch.text(
+                                atlas,
+                                &label,
+                                panel_x + 10.0,
+                                set_y + 4.0,
+                                COLOR_TEXT_SECONDARY,
+                                false,
+                            );
 
                             // Slider track
                             let track_w = 80.0;
@@ -335,36 +477,113 @@ pub fn draw_menu_window(
                             let track_y = set_y + 6.0;
                             let track_h = 6.0;
 
-                            batch.fill(atlas, track_x, track_y, track_w, track_h, rgba(30, 34, 46, 255));
+                            batch.fill(
+                                atlas,
+                                track_x,
+                                track_y,
+                                track_w,
+                                track_h,
+                                rgba(30, 34, 46, 255),
+                            );
                             let progress = ((*value - min) / (max - min).max(0.01)).clamp(0.0, 1.0);
-                            batch.fill(atlas, track_x, track_y, track_w * progress, track_h, COLOR_ACCENT);
+                            batch.fill(
+                                atlas,
+                                track_x,
+                                track_y,
+                                track_w * progress,
+                                track_h,
+                                COLOR_ACCENT,
+                            );
 
                             // Slider knob
-                            batch.fill(atlas, track_x + track_w * progress - 3.0, track_y - 2.0, 6.0, 10.0, rgba(255, 255, 255, 255));
+                            batch.fill(
+                                atlas,
+                                track_x + track_w * progress - 3.0,
+                                track_y - 2.0,
+                                6.0,
+                                10.0,
+                                rgba(255, 255, 255, 255),
+                            );
                         }
                         SettingValue::Enum { selected, options } => {
-                            batch.text(atlas, &setting.name, panel_x + 10.0, set_y + 4.0, COLOR_TEXT_SECONDARY, false);
+                            batch.text(
+                                atlas,
+                                &setting.name,
+                                panel_x + 10.0,
+                                set_y + 4.0,
+                                COLOR_TEXT_SECONDARY,
+                                false,
+                            );
 
-                            let opt_str = options.get(*selected).map(|s| s.as_str()).unwrap_or("Default");
+                            let opt_str = options
+                                .get(*selected)
+                                .map(|s| s.as_str())
+                                .unwrap_or("Default");
                             let opt_w = HudBatch::text_width(atlas, opt_str) + 12.0;
                             let opt_x = panel_x + panel_w - opt_w - 10.0;
-                            batch.fill(atlas, opt_x, set_y + 3.0, opt_w, 13.0, rgba(38, 44, 60, 240));
-                            batch.text(atlas, opt_str, opt_x + 6.0, set_y + 4.0, COLOR_ACCENT_HOVER, false);
+                            batch.fill(
+                                atlas,
+                                opt_x,
+                                set_y + 3.0,
+                                opt_w,
+                                13.0,
+                                rgba(38, 44, 60, 240),
+                            );
+                            batch.text(
+                                atlas,
+                                opt_str,
+                                opt_x + 6.0,
+                                set_y + 4.0,
+                                COLOR_ACCENT_HOVER,
+                                false,
+                            );
                         }
                         SettingValue::Bool(b) => {
-                            batch.text(atlas, &setting.name, panel_x + 10.0, set_y + 4.0, COLOR_TEXT_SECONDARY, false);
+                            batch.text(
+                                atlas,
+                                &setting.name,
+                                panel_x + 10.0,
+                                set_y + 4.0,
+                                COLOR_TEXT_SECONDARY,
+                                false,
+                            );
 
                             let check_x = panel_x + panel_w - 24.0;
-                            let check_bg = if *b { COLOR_TOGGLE_ON } else { COLOR_TOGGLE_OFF };
+                            let check_bg = if *b {
+                                COLOR_TOGGLE_ON
+                            } else {
+                                COLOR_TOGGLE_OFF
+                            };
                             batch.fill(atlas, check_x, set_y + 3.0, 14.0, 14.0, check_bg);
                             if *b {
-                                batch.text(atlas, "✓", check_x + 3.0, set_y + 4.0, rgba(255, 255, 255, 255), true);
+                                batch.text(
+                                    atlas,
+                                    "✓",
+                                    check_x + 3.0,
+                                    set_y + 4.0,
+                                    rgba(255, 255, 255, 255),
+                                    true,
+                                );
                             }
                         }
                         SettingValue::Color(c) => {
-                            batch.text(atlas, &setting.name, panel_x + 10.0, set_y + 4.0, COLOR_TEXT_SECONDARY, false);
+                            batch.text(
+                                atlas,
+                                &setting.name,
+                                panel_x + 10.0,
+                                set_y + 4.0,
+                                COLOR_TEXT_SECONDARY,
+                                false,
+                            );
                             let swatch_x = panel_x + panel_w - 24.0;
-                            batch.fill(atlas, swatch_x, set_y + 3.0, 14.0, 14.0, rgba(c[0], c[1], c[2], c[3]));
+                            batch.fill(
+                                atlas,
+                                swatch_x,
+                                set_y + 3.0,
+                                14.0,
+                                14.0,
+                                rgba(c[0], c[1], c[2], c[3]),
+                            );
                         }
                     }
                     set_y += 20.0;
@@ -440,7 +659,11 @@ pub fn handle_touch_event(
     let wx = state.window_x;
     let wy = state.window_y;
     let ww = state.window_w;
-    let wh = if state.collapsed { 24.0 } else { state.window_h };
+    let wh = if state.collapsed {
+        24.0
+    } else {
+        state.window_h
+    };
 
     let in_window = px >= wx && px <= wx + ww && py >= wy && py <= wy + wh;
 
@@ -505,7 +728,9 @@ pub fn handle_touch_event(
                 for feature in &mut registry.features {
                     if !state.search_query.is_empty() {
                         let q = state.search_query.to_lowercase();
-                        if !feature.name.to_lowercase().contains(&q) && !feature.id.to_lowercase().contains(&q) {
+                        if !feature.name.to_lowercase().contains(&q)
+                            && !feature.id.to_lowercase().contains(&q)
+                        {
                             continue;
                         }
                     } else if feature.category != state.active_category {
@@ -559,12 +784,17 @@ pub fn handle_touch_event(
                                                 return true;
                                             }
                                         }
-                                        SettingValue::Float { value, min, max, .. } => {
+                                        SettingValue::Float {
+                                            value, min, max, ..
+                                        } => {
                                             let track_w = 80.0;
                                             let track_x = panel_x + panel_w - track_w - 10.0;
-                                            if px >= track_x - 5.0 && px <= track_x + track_w + 5.0 {
-                                                state.active_slider = Some((feature.id.clone(), setting.key.clone()));
-                                                let pct = ((px - track_x) / track_w).clamp(0.0, 1.0);
+                                            if px >= track_x - 5.0 && px <= track_x + track_w + 5.0
+                                            {
+                                                state.active_slider =
+                                                    Some((feature.id.clone(), setting.key.clone()));
+                                                let pct =
+                                                    ((px - track_x) / track_w).clamp(0.0, 1.0);
                                                 *value = *min + pct * (*max - *min);
                                                 registry.save_to_config(config);
                                                 config.save();
@@ -599,7 +829,10 @@ pub fn handle_touch_event(
                     if let Some(f) = registry.get_feature_mut(feat_id) {
                         for s in &mut f.settings {
                             if s.key == *set_key {
-                                if let SettingValue::Float { value, min, max, .. } = &mut s.value {
+                                if let SettingValue::Float {
+                                    value, min, max, ..
+                                } = &mut s.value
+                                {
                                     let sidebar_w = 72.0;
                                     let panel_x = wx + sidebar_w + 4.0;
                                     let panel_w = ww - sidebar_w - 8.0;

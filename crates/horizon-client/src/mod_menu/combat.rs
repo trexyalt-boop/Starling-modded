@@ -67,6 +67,7 @@ impl CombatSystem {
         }
 
         let max_range = feat.get_float_setting("range").clamp(1.0, 10.0);
+        let fov = feat.get_float_setting("fov");
         let target_monsters = feat.get_bool_setting("target_monsters");
         let target_players = feat.get_bool_setting("target_players");
         let target_passives = feat.get_bool_setting("target_passives");
@@ -105,9 +106,14 @@ impl CombatSystem {
             // Calculate angle to player's view vector
             let angle = calculate_angle_diff(player_yaw, player_pitch, dx, dy, dz);
 
-            let display_name = custom_name.unwrap_or_else(|| {
-                kind_id.trim_start_matches("minecraft:")
-            }).to_string();
+            // Field of view: only entities inside the aim cone (360 = all around).
+            if fov > 0.0 && angle > (fov.clamp(1.0, 360.0) * 0.5) {
+                continue;
+            }
+
+            let display_name = custom_name
+                .unwrap_or_else(|| kind_id.trim_start_matches("minecraft:"))
+                .to_string();
 
             candidates.push(TargetCandidate {
                 index,
@@ -126,23 +132,33 @@ impl CombatSystem {
         match priority_mode {
             0 => {
                 // Closest
-                candidates.sort_by(|a, b| a.distance.partial_cmp(&b.distance).unwrap_or(std::cmp::Ordering::Equal));
+                candidates.sort_by(|a, b| {
+                    a.distance
+                        .partial_cmp(&b.distance)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
             }
             1 => {
                 // Lowest HP
-                candidates.sort_by(|a, b| a.health.partial_cmp(&b.health).unwrap_or(std::cmp::Ordering::Equal));
+                candidates.sort_by(|a, b| {
+                    a.health
+                        .partial_cmp(&b.health)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
             }
             2 => {
                 // Crosshair angle
-                candidates.sort_by(|a, b| a.angle.partial_cmp(&b.angle).unwrap_or(std::cmp::Ordering::Equal));
+                candidates.sort_by(|a, b| {
+                    a.angle
+                        .partial_cmp(&b.angle)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
             }
             _ => {}
         }
 
         let best = candidates.into_iter().next();
-        if best.is_some() {
-            self.current_target = best.clone();
-        }
+        self.current_target = best.clone();
         best
     }
 
@@ -158,18 +174,39 @@ impl CombatSystem {
     where
         I: Iterator<Item = (usize, u32, &'a str, Option<&'a str>, [f64; 3], f32, f32)>,
     {
-        self.find_target_for("combat_test", registry, player_pos, player_yaw, player_pitch, mobs_iter)
+        self.find_target_for(
+            "combat_test",
+            registry,
+            player_pos,
+            player_yaw,
+            player_pitch,
+            mobs_iter,
+        )
     }
 
-    /// Checks if a rate-limited attack should be performed now based on APS setting for a given feature.
-    pub fn should_attack_feature(&mut self, feature_name: &str, registry: &FeatureRegistry) -> bool {
+    /// Checks if a rate-limited attack should be performed now for a given feature.
+    ///
+    /// The interval is the slower of the feature's `aps` (attacks per second)
+    /// and its `delay` (milliseconds), so triggerbot (delay only) and the auras
+    /// (aps, optionally with an extra delay) share one timer.
+    pub fn should_attack_feature(
+        &mut self,
+        feature_name: &str,
+        registry: &FeatureRegistry,
+    ) -> bool {
         let feat = match registry.get_feature(feature_name) {
             Some(f) if f.enabled => f,
             _ => return false,
         };
 
-        let aps = feat.get_float_setting("aps").clamp(1.0, 20.0);
-        let interval = Duration::from_secs_f32(1.0 / aps);
+        let aps = feat.get_float_setting("aps");
+        let aps_secs = if aps > 0.0 {
+            1.0 / aps.clamp(1.0, 20.0)
+        } else {
+            0.0
+        };
+        let delay_secs = feat.get_float_setting("delay").max(0.0) / 1000.0;
+        let interval = Duration::from_secs_f32(aps_secs.max(delay_secs));
         let now = Instant::now();
 
         let last_time = match feature_name {
@@ -233,8 +270,36 @@ fn calculate_angle_diff(yaw: f32, pitch: f32, dx: f32, dy: f32, dz: f32) -> f32 
     let target_pitch = (-dy).atan2(horiz_dist).to_degrees();
 
     let diff_yaw = (yaw - target_yaw).abs().rem_euclid(360.0);
-    let yaw_angle = if diff_yaw > 180.0 { 360.0 - diff_yaw } else { diff_yaw };
+    let yaw_angle = if diff_yaw > 180.0 {
+        360.0 - diff_yaw
+    } else {
+        diff_yaw
+    };
     let pitch_angle = (pitch - target_pitch).abs();
 
     (yaw_angle * yaw_angle + pitch_angle * pitch_angle).sqrt()
+}
+
+/// Wraps an angle in degrees into `-180..180` (`Mth.wrapDegrees`).
+pub fn wrap_degrees(deg: f32) -> f32 {
+    let mut d = (deg + 180.0) % 360.0;
+    if d < 0.0 {
+        d += 360.0;
+    }
+    d - 180.0
+}
+
+/// The view rotation (yaw, pitch) that looks from `eye` at `target`.
+///
+/// Same convention as `Game::view_vector`: `-sin(yaw)cos(pitch)`,
+/// `-sin(pitch)`, `cos(yaw)cos(pitch)`.
+pub fn look_at(eye: [f64; 3], target: [f64; 3]) -> (f32, f32) {
+    let dx = (target[0] - eye[0]) as f32;
+    let dy = (target[1] - eye[1]) as f32;
+    let dz = (target[2] - eye[2]) as f32;
+    let horiz = (dx * dx + dz * dz).sqrt().max(0.001);
+    (
+        wrap_degrees((-dx).atan2(dz).to_degrees()),
+        (-dy).atan2(horiz).to_degrees().clamp(-90.0, 90.0),
+    )
 }

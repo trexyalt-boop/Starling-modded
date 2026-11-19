@@ -143,7 +143,8 @@ impl ModMenu {
             self.combat.attack_cooldown_scale,
         );
 
-        let view_proj = glam::Mat4::from_cols_array(&cam_proj) * glam::Mat4::from_cols_array(&cam_view);
+        let view_proj =
+            glam::Mat4::from_cols_array(&cam_proj) * glam::Mat4::from_cols_array(&cam_view);
 
         let esp_box = self.registry.is_enabled("esp_box");
         let esp_names = self.registry.is_enabled("esp_names");
@@ -151,18 +152,47 @@ impl ModMenu {
         let show_tracers = self.registry.is_enabled("tracers");
 
         if esp_box || esp_names || esp_health || show_tracers {
-            let box_style = self.registry.get_feature("esp_box").map_or(0, |f| f.get_enum_setting("box_style"));
-            let thickness = self.registry.get_feature("esp_box").map_or(1.5, |f| f.get_float_setting("thickness"));
+            let box_style = self
+                .registry
+                .get_feature("esp_box")
+                .map_or(0, |f| f.get_enum_setting("box_style"));
+            let thickness = self
+                .registry
+                .get_feature("esp_box")
+                .map_or(1.5, |f| f.get_float_setting("thickness"));
 
-            let color_monster = self.registry.get_feature("esp_box").map_or([255, 60, 60, 230], |f| f.get_color_setting("color_monster"));
-            let color_player = self.registry.get_feature("esp_box").map_or([60, 160, 255, 230], |f| f.get_color_setting("color_player"));
-            let color_passive = self.registry.get_feature("esp_box").map_or([60, 240, 100, 230], |f| f.get_color_setting("color_passive"));
+            let color_monster = self
+                .registry
+                .get_feature("esp_box")
+                .map_or([255, 60, 60, 230], |f| f.get_color_setting("color_monster"));
+            let color_player = self
+                .registry
+                .get_feature("esp_box")
+                .map_or([60, 160, 255, 230], |f| f.get_color_setting("color_player"));
+            let color_passive = self
+                .registry
+                .get_feature("esp_box")
+                .map_or([60, 240, 100, 230], |f| {
+                    f.get_color_setting("color_passive")
+                });
 
-            let show_monsters = self.registry.get_feature("esp_box").map_or(true, |f| f.get_bool_setting("show_monsters"));
-            let show_players = self.registry.get_feature("esp_box").map_or(true, |f| f.get_bool_setting("show_players"));
-            let show_passives = self.registry.get_feature("esp_box").map_or(false, |f| f.get_bool_setting("show_passives"));
+            let show_monsters = self
+                .registry
+                .get_feature("esp_box")
+                .map_or(true, |f| f.get_bool_setting("show_monsters"));
+            let show_players = self
+                .registry
+                .get_feature("esp_box")
+                .map_or(true, |f| f.get_bool_setting("show_players"));
+            let show_passives = self
+                .registry
+                .get_feature("esp_box")
+                .map_or(false, |f| f.get_bool_setting("show_passives"));
 
-            let max_name_dist = self.registry.get_feature("esp_names").map_or(64.0, |f| f.get_float_setting("max_dist"));
+            let max_name_dist = self
+                .registry
+                .get_feature("esp_names")
+                .map_or(64.0, |f| f.get_float_setting("max_dist"));
 
             for &(_idx, _id, kind_id, custom_name, pos, bounds, health, max_health) in mobs {
                 if health <= 0.0 {
@@ -184,11 +214,26 @@ impl ModMenu {
                 }
 
                 let color = if is_player {
-                    rgba(color_player[0], color_player[1], color_player[2], color_player[3])
+                    rgba(
+                        color_player[0],
+                        color_player[1],
+                        color_player[2],
+                        color_player[3],
+                    )
                 } else if is_hostile {
-                    rgba(color_monster[0], color_monster[1], color_monster[2], color_monster[3])
+                    rgba(
+                        color_monster[0],
+                        color_monster[1],
+                        color_monster[2],
+                        color_monster[3],
+                    )
                 } else {
-                    rgba(color_passive[0], color_passive[1], color_passive[2], color_passive[3])
+                    rgba(
+                        color_passive[0],
+                        color_passive[1],
+                        color_passive[2],
+                        color_passive[3],
+                    )
                 };
 
                 let dx = (pos[0] - cam_pos[0]) as f32;
@@ -197,15 +242,21 @@ impl ModMenu {
                 let dist = (dx * dx + dy * dy + dz * dz).sqrt();
 
                 // 2D Bounding Box ESP
-                if let Some(([x0, y0], [x1, y1])) = visuals::project_aabb(bounds, cam_pos, &view_proj, screen_w, screen_h) {
+                if let Some(([x0, y0], [x1, y1])) =
+                    visuals::project_aabb(bounds, cam_pos, &view_proj, screen_w, screen_h)
+                {
                     let bw = (x1 - x0).max(4.0);
                     let bh = (y1 - y0).max(4.0);
 
                     if esp_box {
                         if box_style == 1 {
-                            visuals::draw_corner_box(batch, atlas, x0, y0, bw, bh, thickness, color);
+                            visuals::draw_corner_box(
+                                batch, atlas, x0, y0, bw, bh, thickness, color,
+                            );
                         } else {
-                            visuals::draw_rect_outline(batch, atlas, x0, y0, bw, bh, thickness, color);
+                            visuals::draw_rect_outline(
+                                batch, atlas, x0, y0, bw, bh, thickness, color,
+                            );
                         }
                     }
 
@@ -216,13 +267,21 @@ impl ModMenu {
 
                     // Name and Distance Label
                     if esp_names && dist <= max_name_dist {
-                        let entity_name = custom_name.unwrap_or_else(|| kind_id.trim_start_matches("minecraft:"));
+                        let entity_name =
+                            custom_name.unwrap_or_else(|| kind_id.trim_start_matches("minecraft:"));
                         let label_str = format!("{entity_name} [{dist:.0}m]");
                         let tw = HudBatch::text_width(atlas, &label_str);
                         let lx = x0 + (bw - tw) * 0.5;
                         let ly = y0 - 12.0;
 
-                        batch.fill(atlas, lx - 2.0, ly - 1.0, tw + 4.0, 10.0, rgba(0, 0, 0, 150));
+                        batch.fill(
+                            atlas,
+                            lx - 2.0,
+                            ly - 1.0,
+                            tw + 4.0,
+                            10.0,
+                            rgba(0, 0, 0, 150),
+                        );
                         batch.text(atlas, &label_str, lx, ly, rgba(255, 255, 255, 255), true);
                     }
 
@@ -230,7 +289,14 @@ impl ModMenu {
                     if show_tracers {
                         let _bottom_x = screen_w * 0.5;
                         let bottom_y = screen_h;
-                        batch.fill(atlas, x0 + bw * 0.5, y1, 1.5, (bottom_y - y1).max(1.0), rgba(color_monster[0], color_monster[1], color_monster[2], 120));
+                        batch.fill(
+                            atlas,
+                            x0 + bw * 0.5,
+                            y1,
+                            1.5,
+                            (bottom_y - y1).max(1.0),
+                            rgba(color_monster[0], color_monster[1], color_monster[2], 120),
+                        );
                     }
                 }
             }

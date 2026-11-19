@@ -83,7 +83,15 @@ impl Setting {
         }
     }
 
-    pub fn float(key: &str, name: &str, desc: &str, val: f32, min: f32, max: f32, step: f32) -> Self {
+    pub fn float(
+        key: &str,
+        name: &str,
+        desc: &str,
+        val: f32,
+        min: f32,
+        max: f32,
+        step: f32,
+    ) -> Self {
         Self {
             key: key.to_string(),
             name: name.to_string(),
@@ -215,23 +223,116 @@ impl FeatureRegistry {
     fn register_defaults(&mut self) {
         // --- 1. COMBAT MODULES ---
         self.features.push(Feature::new(
+            "aim_assist",
+            "Aim Assist",
+            "Smoothly steers the view toward the closest entity inside the aim cone",
+            FeatureCategory::Combat,
+            false,
+            vec![
+                Setting::float(
+                    "range",
+                    "Aim Range",
+                    "Maximum aim distance in meters",
+                    4.5,
+                    1.0,
+                    8.0,
+                    0.5,
+                ),
+                Setting::float(
+                    "fov",
+                    "Field of View",
+                    "Aim cone around the crosshair (360 = all around)",
+                    90.0,
+                    5.0,
+                    360.0,
+                    5.0,
+                ),
+                Setting::float(
+                    "speed",
+                    "Aim Speed",
+                    "Fraction of the remaining angle corrected each tick",
+                    0.35,
+                    0.05,
+                    1.0,
+                    0.05,
+                ),
+                Setting::bool(
+                    "target_monsters",
+                    "Target Monsters",
+                    "Aim at hostile mobs",
+                    true,
+                ),
+                Setting::bool(
+                    "target_players",
+                    "Target Players",
+                    "Aim at other player entities",
+                    true,
+                ),
+                Setting::bool(
+                    "target_passives",
+                    "Target Passives",
+                    "Aim at animals and friendly mobs",
+                    false,
+                ),
+            ],
+        ));
+
+        self.features.push(Feature::new(
             "combat_test",
             "Combat Tester",
             "Controlled simulated attack on targeted entities with rate limiting",
             FeatureCategory::Combat,
             false,
             vec![
-                Setting::float("range", "Target Range", "Attack radius in meters", 3.8, 2.0, 6.0, 0.1),
-                Setting::float("aps", "Attacks / Sec", "Rate-limited simulated attacks", 8.0, 1.0, 20.0, 1.0),
-                Setting::choice("priority", "Target Priority", "Entity selection order", 0, &[
-                    "Closest",
-                    "Lowest HP",
-                    "Crosshair",
-                ]),
-                Setting::bool("target_monsters", "Target Monsters", "Attack hostile mobs", true),
-                Setting::bool("target_players", "Target Players", "Attack other player entities", true),
-                Setting::bool("target_passives", "Target Passives", "Attack animals and friendly mobs", false),
-                Setting::bool("cooldown_sync", "Weapon Cooldown", "Wait for full 1.9+ weapon charge", true),
+                Setting::float(
+                    "range",
+                    "Target Range",
+                    "Attack radius in meters",
+                    3.8,
+                    2.0,
+                    6.0,
+                    0.1,
+                ),
+                Setting::float(
+                    "aps",
+                    "Attacks / Sec",
+                    "Rate-limited simulated attacks",
+                    8.0,
+                    1.0,
+                    20.0,
+                    1.0,
+                ),
+                Setting::choice(
+                    "priority",
+                    "Target Priority",
+                    "Entity selection order",
+                    0,
+                    &["Closest", "Lowest HP", "Crosshair"],
+                ),
+                Setting::bool(
+                    "target_monsters",
+                    "Target Monsters",
+                    "Attack hostile mobs",
+                    true,
+                ),
+                Setting::bool(
+                    "target_players",
+                    "Target Players",
+                    "Attack other player entities",
+                    true,
+                ),
+                Setting::bool(
+                    "target_passives",
+                    "Target Passives",
+                    "Attack animals and friendly mobs",
+                    false,
+                ),
+                Setting::bool(
+                    "cooldown_sync",
+                    "Weapon Cooldown",
+                    "Wait for full 1.9+ weapon charge",
+                    true,
+                ),
             ],
         ));
 
@@ -242,18 +343,79 @@ impl FeatureRegistry {
             FeatureCategory::Combat,
             false,
             vec![
-                Setting::float("range", "Attack Range", "Reach distance in meters", 3.8, 2.0, 6.0, 0.1),
-                Setting::float("aps", "Attacks / Sec", "Rate-limited attacks per second", 8.0, 1.0, 20.0, 1.0),
-                Setting::choice("priority", "Target Priority", "Entity selection order", 0, &[
-                    "Closest",
-                    "Lowest HP",
-                    "Crosshair",
-                ]),
-                Setting::bool("target_monsters", "Target Monsters", "Attack hostile mobs", true),
-                Setting::bool("target_players", "Target Players", "Attack other player entities", true),
-                Setting::bool("target_passives", "Target Passives", "Attack animals and friendly mobs", false),
-                Setting::bool("cooldown_sync", "Weapon Cooldown", "Wait for full 1.9+ weapon charge (0.9+ scale)", true),
-                Setting::bool("silent_swing", "Silent Swing", "Suppress local client arm swing animation", true),
+                Setting::float(
+                    "range",
+                    "Attack Range",
+                    "Reach distance in meters",
+                    3.8,
+                    2.0,
+                    6.0,
+                    0.1,
+                ),
+                Setting::float(
+                    "aps",
+                    "Attacks / Sec",
+                    "Rate-limited attacks per second",
+                    8.0,
+                    1.0,
+                    20.0,
+                    1.0,
+                ),
+                Setting::float(
+                    "delay",
+                    "Attack Delay",
+                    "Minimum time between attacks in ms (0 = APS only)",
+                    0.0,
+                    0.0,
+                    500.0,
+                    10.0,
+                ),
+                Setting::float(
+                    "fov",
+                    "Field of View",
+                    "Aim cone around the crosshair (360 = all around)",
+                    180.0,
+                    30.0,
+                    360.0,
+                    10.0,
+                ),
+                Setting::choice(
+                    "priority",
+                    "Target Priority",
+                    "Entity selection order",
+                    0,
+                    &["Closest", "Lowest HP", "Crosshair"],
+                ),
+                Setting::bool(
+                    "target_monsters",
+                    "Target Monsters",
+                    "Attack hostile mobs",
+                    true,
+                ),
+                Setting::bool(
+                    "target_players",
+                    "Target Players",
+                    "Attack other player entities",
+                    true,
+                ),
+                Setting::bool(
+                    "target_passives",
+                    "Target Passives",
+                    "Attack animals and friendly mobs",
+                    false,
+                ),
+                Setting::bool(
+                    "cooldown_sync",
+                    "Weapon Cooldown",
+                    "Wait for full 1.9+ weapon charge (0.9+ scale)",
+                    true,
+                ),
+                Setting::bool(
+                    "silent_swing",
+                    "Silent Swing",
+                    "Suppress local client arm swing animation",
+                    true,
+                ),
             ],
         ));
 
@@ -264,10 +426,33 @@ impl FeatureRegistry {
             FeatureCategory::Combat,
             false,
             vec![
-                Setting::float("delay", "Attack Delay", "Delay after aiming in ms", 50.0, 0.0, 250.0, 10.0),
-                Setting::bool("require_weapon", "Require Weapon", "Only trigger when holding a weapon", false),
-                Setting::bool("cooldown_sync", "Weapon Cooldown", "Wait for full weapon charge (0.9+ scale)", true),
-                Setting::bool("crit_only", "Critical Only", "Only attack when in critical fall state", false),
+                Setting::float(
+                    "delay",
+                    "Attack Delay",
+                    "Minimum time between attacks in ms",
+                    100.0,
+                    0.0,
+                    500.0,
+                    10.0,
+                ),
+                Setting::bool(
+                    "require_weapon",
+                    "Require Weapon",
+                    "Only trigger when holding a weapon",
+                    false,
+                ),
+                Setting::bool(
+                    "cooldown_sync",
+                    "Weapon Cooldown",
+                    "Wait for full weapon charge (0.9+ scale)",
+                    true,
+                ),
+                Setting::bool(
+                    "crit_only",
+                    "Critical Only",
+                    "Only attack when in critical fall state",
+                    false,
+                ),
             ],
         ));
 
@@ -278,9 +463,24 @@ impl FeatureRegistry {
             FeatureCategory::Combat,
             false,
             vec![
-                Setting::bool("hud_indicator", "HUD Indicator", "Visual badge when in critical fall state", true),
-                Setting::bool("crit_only", "Critical Only", "Prevent combat attacks unless in crit state", false),
-                Setting::bool("auto_jump", "Auto Jump", "Automatically jump in combat to land crits", false),
+                Setting::bool(
+                    "hud_indicator",
+                    "HUD Indicator",
+                    "Visual badge when in critical fall state",
+                    true,
+                ),
+                Setting::bool(
+                    "crit_only",
+                    "Critical Only",
+                    "Prevent combat attacks unless in crit state",
+                    false,
+                ),
+                Setting::bool(
+                    "auto_jump",
+                    "Auto Jump",
+                    "Automatically jump in combat to land crits",
+                    false,
+                ),
             ],
         ));
 
@@ -292,17 +492,58 @@ impl FeatureRegistry {
             FeatureCategory::Visuals,
             true,
             vec![
-                Setting::choice("box_style", "Box Style", "Visual outline style", 0, &[
-                    "Full Box",
-                    "Corners Only",
-                ]),
-                Setting::float("thickness", "Line Thickness", "Thickness of outlines", 1.5, 1.0, 4.0, 0.5),
-                Setting::color("color_monster", "Monster Color", "Box color for hostile mobs", [255, 60, 60, 230]),
-                Setting::color("color_player", "Player Color", "Box color for players", [60, 160, 255, 230]),
-                Setting::color("color_passive", "Passive Color", "Box color for animals", [60, 240, 100, 230]),
-                Setting::bool("show_monsters", "Show Monsters", "Draw boxes on hostile mobs", true),
-                Setting::bool("show_players", "Show Players", "Draw boxes on players", true),
-                Setting::bool("show_passives", "Show Passives", "Draw boxes on animals", false),
+                Setting::choice(
+                    "box_style",
+                    "Box Style",
+                    "Visual outline style",
+                    0,
+                    &["Full Box", "Corners Only"],
+                ),
+                Setting::float(
+                    "thickness",
+                    "Line Thickness",
+                    "Thickness of outlines",
+                    1.5,
+                    1.0,
+                    4.0,
+                    0.5,
+                ),
+                Setting::color(
+                    "color_monster",
+                    "Monster Color",
+                    "Box color for hostile mobs",
+                    [255, 60, 60, 230],
+                ),
+                Setting::color(
+                    "color_player",
+                    "Player Color",
+                    "Box color for players",
+                    [60, 160, 255, 230],
+                ),
+                Setting::color(
+                    "color_passive",
+                    "Passive Color",
+                    "Box color for animals",
+                    [60, 240, 100, 230],
+                ),
+                Setting::bool(
+                    "show_monsters",
+                    "Show Monsters",
+                    "Draw boxes on hostile mobs",
+                    true,
+                ),
+                Setting::bool(
+                    "show_players",
+                    "Show Players",
+                    "Draw boxes on players",
+                    true,
+                ),
+                Setting::bool(
+                    "show_passives",
+                    "Show Passives",
+                    "Draw boxes on animals",
+                    false,
+                ),
             ],
         ));
 
@@ -313,9 +554,27 @@ impl FeatureRegistry {
             FeatureCategory::Visuals,
             true,
             vec![
-                Setting::bool("show_distance", "Show Distance", "Include distance [14m] in label", true),
-                Setting::bool("badge_bg", "Background Badge", "Dark background behind nametags", true),
-                Setting::float("max_dist", "Max Distance", "Maximum distance to draw labels", 64.0, 16.0, 128.0, 8.0),
+                Setting::bool(
+                    "show_distance",
+                    "Show Distance",
+                    "Include distance [14m] in label",
+                    true,
+                ),
+                Setting::bool(
+                    "badge_bg",
+                    "Background Badge",
+                    "Dark background behind nametags",
+                    true,
+                ),
+                Setting::float(
+                    "max_dist",
+                    "Max Distance",
+                    "Maximum distance to draw labels",
+                    64.0,
+                    16.0,
+                    128.0,
+                    8.0,
+                ),
             ],
         ));
 
@@ -326,8 +585,18 @@ impl FeatureRegistry {
             FeatureCategory::Visuals,
             true,
             vec![
-                Setting::bool("health_bar", "Health Bar", "Draw dynamic green-yellow-red bar", true),
-                Setting::bool("health_text", "Health Text", "Draw exact HP number (e.g. 18 HP)", true),
+                Setting::bool(
+                    "health_bar",
+                    "Health Bar",
+                    "Draw dynamic green-yellow-red bar",
+                    true,
+                ),
+                Setting::bool(
+                    "health_text",
+                    "Health Text",
+                    "Draw exact HP number (e.g. 18 HP)",
+                    true,
+                ),
             ],
         ));
 
@@ -338,9 +607,30 @@ impl FeatureRegistry {
             FeatureCategory::Visuals,
             true,
             vec![
-                Setting::float("hud_x", "HUD Position X", "X position in GUI pixels", 10.0, 0.0, 500.0, 10.0),
-                Setting::float("hud_y", "HUD Position Y", "Y position in GUI pixels", 50.0, 0.0, 400.0, 10.0),
-                Setting::bool("show_hp_bar", "Show HP Bar", "Include animated health bar", true),
+                Setting::float(
+                    "hud_x",
+                    "HUD Position X",
+                    "X position in GUI pixels",
+                    10.0,
+                    0.0,
+                    500.0,
+                    10.0,
+                ),
+                Setting::float(
+                    "hud_y",
+                    "HUD Position Y",
+                    "Y position in GUI pixels",
+                    50.0,
+                    0.0,
+                    400.0,
+                    10.0,
+                ),
+                Setting::bool(
+                    "show_hp_bar",
+                    "Show HP Bar",
+                    "Include animated health bar",
+                    true,
+                ),
             ],
         ));
 
@@ -350,9 +640,15 @@ impl FeatureRegistry {
             "Draws lines from bottom of screen to nearby entities",
             FeatureCategory::Visuals,
             false,
-            vec![
-                Setting::float("max_range", "Max Range", "Max distance for tracers in meters", 48.0, 16.0, 96.0, 4.0),
-            ],
+            vec![Setting::float(
+                "max_range",
+                "Max Range",
+                "Max distance for tracers in meters",
+                48.0,
+                16.0,
+                96.0,
+                4.0,
+            )],
         ));
 
         self.features.push(Feature::new(
@@ -380,9 +676,15 @@ impl FeatureRegistry {
             "Reduces delay for continuous block placing and item interactions",
             FeatureCategory::Player,
             false,
-            vec![
-                Setting::float("delay_ticks", "Click Delay", "Ticks between actions", 0.0, 0.0, 4.0, 1.0),
-            ],
+            vec![Setting::float(
+                "delay_ticks",
+                "Click Delay",
+                "Ticks between actions",
+                0.0,
+                0.0,
+                4.0,
+                1.0,
+            )],
         ));
 
         self.features.push(Feature::new(
@@ -391,9 +693,15 @@ impl FeatureRegistry {
             "Modifies smooth step height for easier terrain traversal",
             FeatureCategory::Player,
             false,
-            vec![
-                Setting::float("height", "Step Height", "Step elevation in meters", 1.0, 0.6, 2.0, 0.1),
-            ],
+            vec![Setting::float(
+                "height",
+                "Step Height",
+                "Step elevation in meters",
+                1.0,
+                0.6,
+                2.0,
+                0.1,
+            )],
         ));
 
         self.features.push(Feature::new(
@@ -412,9 +720,15 @@ impl FeatureRegistry {
             "Overrides local day time for visual lighting preview",
             FeatureCategory::World,
             false,
-            vec![
-                Setting::float("time", "Time of Day", "Tick time: 0=Day, 6000=Noon, 13000=Night", 6000.0, 0.0, 24000.0, 500.0),
-            ],
+            vec![Setting::float(
+                "time",
+                "Time of Day",
+                "Tick time: 0=Day, 6000=Noon, 13000=Night",
+                6000.0,
+                0.0,
+                24000.0,
+                500.0,
+            )],
         ));
 
         self.features.push(Feature::new(
@@ -443,7 +757,12 @@ impl FeatureRegistry {
             FeatureCategory::Misc,
             true,
             vec![
-                Setting::bool("show_biome", "Show Biome", "Include current biome name", true),
+                Setting::bool(
+                    "show_biome",
+                    "Show Biome",
+                    "Include current biome name",
+                    true,
+                ),
                 Setting::bool("show_fps", "Show FPS", "Include frame rate display", true),
             ],
         ));
@@ -464,9 +783,15 @@ impl FeatureRegistry {
             "Configures UI sizing factor for high-resolution displays",
             FeatureCategory::Settings,
             false,
-            vec![
-                Setting::float("scale", "Scale Multiplier", "Scale multiplier", 1.0, 0.7, 1.4, 0.05),
-            ],
+            vec![Setting::float(
+                "scale",
+                "Scale Multiplier",
+                "Scale multiplier",
+                1.0,
+                0.7,
+                1.4,
+                0.05,
+            )],
         ));
 
         self.features.push(Feature::new(
@@ -484,9 +809,15 @@ impl FeatureRegistry {
             "Size of the floating menu toggle button",
             FeatureCategory::Settings,
             false,
-            vec![
-                Setting::float("size", "Button Size", "Diameter in pixels", 36.0, 24.0, 56.0, 2.0),
-            ],
+            vec![Setting::float(
+                "size",
+                "Button Size",
+                "Diameter in pixels",
+                36.0,
+                24.0,
+                56.0,
+                2.0,
+            )],
         ));
     }
 
@@ -541,7 +872,10 @@ impl FeatureRegistry {
     }
 
     pub fn is_enabled(&self, id: &str) -> bool {
-        self.features.iter().find(|f| f.id == id).map_or(false, |f| f.enabled)
+        self.features
+            .iter()
+            .find(|f| f.id == id)
+            .map_or(false, |f| f.enabled)
     }
 
     pub fn get_feature(&self, id: &str) -> Option<&Feature> {

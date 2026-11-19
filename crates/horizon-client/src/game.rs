@@ -8319,22 +8319,33 @@ impl Game<'_> {
     /// Renders Starling Native Mod Menu visuals (ESP, Target HUD, Coords) and the menu window.
     fn draw_mod_menu_and_visuals(&mut self, batch: &mut HudBatch) {
         if let Some(cam) = self.native_camera_frame.as_ref() {
-            let p_pos = self.player.as_ref().map_or(cam.position, |p| [p.position.x, p.position.y, p.position.z]);
-            let (p_yaw, p_pitch) = self.player.as_ref().map_or((cam.yaw, cam.pitch), |p| (p.yaw, p.pitch));
+            let p_pos = self
+                .player
+                .as_ref()
+                .map_or(cam.position, |p| [p.position.x, p.position.y, p.position.z]);
+            let (p_yaw, p_pitch) = self
+                .player
+                .as_ref()
+                .map_or((cam.yaw, cam.pitch), |p| (p.yaw, p.pitch));
 
             // Extract entity data for ESP rendering
-            let mobs: Vec<_> = self.mobs.iter().enumerate().map(|(i, m)| {
-                (
-                    i,
-                    m.id,
-                    m.kind.id.as_str(),
-                    m.custom_name.as_deref(),
-                    [m.position.x, m.position.y, m.position.z],
-                    m.bounds(),
-                    m.health,
-                    m.kind.max_health,
-                )
-            }).collect();
+            let mobs: Vec<_> = self
+                .mobs
+                .iter()
+                .enumerate()
+                .map(|(i, m)| {
+                    (
+                        i,
+                        m.id,
+                        m.kind.id.as_str(),
+                        m.custom_name.as_deref(),
+                        [m.position.x, m.position.y, m.position.z],
+                        m.bounds(),
+                        m.health,
+                        m.kind.max_health,
+                    )
+                })
+                .collect();
 
             let biome_name = self.dim.id();
             let cam_pos = cam.position;
@@ -8397,8 +8408,11 @@ impl Game<'_> {
 
         // Fast Place: reset block placement delay
         if self.mod_menu.registry.is_enabled("fast_place") {
-            let delay_ticks = self.mod_menu.registry.get_feature("fast_place")
-                .map_or(0.0, |f| f.get_float_setting("delay_ticks")) as u32;
+            let delay_ticks =
+                self.mod_menu
+                    .registry
+                    .get_feature("fast_place")
+                    .map_or(0.0, |f| f.get_float_setting("delay_ticks")) as u32;
             if self.use_delay > delay_ticks {
                 self.use_delay = delay_ticks;
             }
@@ -8434,7 +8448,8 @@ impl Game<'_> {
                 && p.fall_distance > 0.0
                 && !p.fluids.was_touching_water
                 && !p.sprinting;
-            let restricted = self.potions.effects.get("blindness").is_some() || self.riding.is_some();
+            let restricted =
+                self.potions.effects.get("blindness").is_some() || self.riding.is_some();
             is_crit_ready = scale > 0.9 && is_falling && !restricted;
         }
 
@@ -8442,36 +8457,70 @@ impl Game<'_> {
         self.mod_menu.combat.is_on_ground = on_ground;
 
         let crit_assist_enabled = self.mod_menu.registry.is_enabled("crit_assist");
-        let crit_only_global = crit_assist_enabled && self.mod_menu.registry.get_feature("crit_assist")
-            .is_some_and(|f| f.get_bool_setting("crit_only"));
-        let crit_auto_jump = crit_assist_enabled && self.mod_menu.registry.get_feature("crit_assist")
-            .is_some_and(|f| f.get_bool_setting("auto_jump"));
+        let crit_only_global = crit_assist_enabled
+            && self
+                .mod_menu
+                .registry
+                .get_feature("crit_assist")
+                .is_some_and(|f| f.get_bool_setting("crit_only"));
+        let crit_auto_jump = crit_assist_enabled
+            && self
+                .mod_menu
+                .registry
+                .get_feature("crit_assist")
+                .is_some_and(|f| f.get_bool_setting("auto_jump"));
 
         // Clean up stale target in Target HUD
         if let Some(curr) = &self.mod_menu.combat.current_target {
-            if curr.index >= self.mobs.len() || self.mobs[curr.index].health <= 0.0 || self.mobs[curr.index].removed {
+            if curr.index >= self.mobs.len()
+                || self.mobs[curr.index].health <= 0.0
+                || self.mobs[curr.index].removed
+            {
                 self.mod_menu.combat.current_target = None;
             }
         }
 
-        // Silent Aura: automated silent attack on best candidate within reach
-        if self.mod_menu.registry.is_enabled("silent_aura") {
-            if let Some(p) = &self.player {
-                let p_pos = [p.position.x, p.position.y, p.position.z];
-                let p_yaw = p.yaw;
-                let p_pitch = p.pitch;
+        // Aim Assist: smoothly steer the view toward the best entity in the cone
+        self.tick_aim_assist();
 
-                let mobs_iter = self.mobs.iter().enumerate().map(|(i, m)| {
-                    (
-                        i,
-                        m.id,
-                        m.kind.id.as_str(),
-                        m.custom_name.as_deref(),
-                        [m.position.x, m.position.y, m.position.z],
-                        m.health,
-                        m.kind.max_health,
-                    )
-                });
+        // Silent Aura: automated silent attack on the best *reachable* candidate
+        if self.mod_menu.registry.is_enabled("silent_aura") {
+            let view = self
+                .player
+                .as_ref()
+                .map(|p| ([p.position.x, p.position.y, p.position.z], p.yaw, p.pitch));
+
+            if let Some((p_pos, p_yaw, p_pitch)) = view {
+                // Only entities the server will accept: alive, present, and inside
+                // the vanilla eye-to-hitbox reach (`handleAttack` drops the rest,
+                // `game/lan_actions.rs::guest_attack`).
+                let mut reachable = Vec::new();
+                for i in 0..self.mobs.len() {
+                    if self.mobs[i].removed || self.mobs[i].health <= 0.0 {
+                        continue;
+                    }
+                    let bounds = self.mobs[i].bounds();
+                    if self.within_attack_range(&bounds) {
+                        reachable.push(i);
+                    }
+                }
+
+                let mobs_iter = self
+                    .mobs
+                    .iter()
+                    .enumerate()
+                    .filter(|(i, _)| reachable.contains(i))
+                    .map(|(i, m)| {
+                        (
+                            i,
+                            m.id,
+                            m.kind.id.as_str(),
+                            m.custom_name.as_deref(),
+                            [m.position.x, m.position.y, m.position.z],
+                            m.health,
+                            m.kind.max_health,
+                        )
+                    });
 
                 let target = self.mod_menu.combat.find_target_for(
                     "silent_aura",
@@ -8495,8 +8544,15 @@ impl Game<'_> {
                     let can_crit = !crit_only_global || is_crit_ready;
 
                     if can_cooldown && can_crit {
-                        if self.mod_menu.combat.should_attack_feature("silent_aura", &self.mod_menu.registry) {
-                            if target.index < self.mobs.len() {
+                        if self
+                            .mod_menu
+                            .combat
+                            .should_attack_feature("silent_aura", &self.mod_menu.registry)
+                        {
+                            if target.index < self.mobs.len()
+                                && !self.mobs[target.index].removed
+                                && self.mobs[target.index].health > 0.0
+                            {
                                 self.mod_attack_mob(target.index, silent);
                             }
                         }
@@ -8557,32 +8613,47 @@ impl Game<'_> {
         // Trigger Bot: automatically attacks when crosshair is aimed directly at an entity
         if self.mod_menu.registry.is_enabled("trigger_bot") {
             if let Some((index, distance)) = self.mob_hit() {
-                if index < self.mobs.len() && self.mobs[index].health > 0.0 && !self.mobs[index].removed {
+                if index < self.mobs.len()
+                    && self.mobs[index].health > 0.0
+                    && !self.mobs[index].removed
+                {
                     let target_kind = self.mobs[index].kind.id.clone();
                     let display_name = self.mobs[index].custom_name.clone().unwrap_or_else(|| {
                         target_kind.trim_start_matches("minecraft:").to_string()
                     });
-                    self.mod_menu.combat.current_target = Some(crate::mod_menu::combat::TargetCandidate {
-                        index,
-                        id: self.mobs[index].id,
-                        name: display_name,
-                        kind: target_kind,
-                        position: [self.mobs[index].position.x, self.mobs[index].position.y, self.mobs[index].position.z],
-                        distance: distance as f32,
-                        health: self.mobs[index].health,
-                        max_health: self.mobs[index].kind.max_health,
-                        angle: 0.0,
-                    });
+                    self.mod_menu.combat.current_target =
+                        Some(crate::mod_menu::combat::TargetCandidate {
+                            index,
+                            id: self.mobs[index].id,
+                            name: display_name,
+                            kind: target_kind,
+                            position: [
+                                self.mobs[index].position.x,
+                                self.mobs[index].position.y,
+                                self.mobs[index].position.z,
+                            ],
+                            distance: distance as f32,
+                            health: self.mobs[index].health,
+                            max_health: self.mobs[index].kind.max_health,
+                            angle: 0.0,
+                        });
 
                     let feat = self.mod_menu.registry.get_feature("trigger_bot");
-                    let require_weapon = feat.map_or(false, |f| f.get_bool_setting("require_weapon"));
+                    let require_weapon =
+                        feat.map_or(false, |f| f.get_bool_setting("require_weapon"));
                     let cooldown_sync = feat.map_or(true, |f| f.get_bool_setting("cooldown_sync"));
-                    let crit_only = feat.map_or(false, |f| f.get_bool_setting("crit_only")) || crit_only_global;
+                    let crit_only =
+                        feat.map_or(false, |f| f.get_bool_setting("crit_only")) || crit_only_global;
 
-                    let is_weapon = !require_weapon || self.held().is_some_and(|s| {
-                        let id = s.item.as_ref();
-                        id.contains("sword") || id.contains("axe") || id.contains("spear") || id.contains("mace") || id.contains("trident")
-                    });
+                    let is_weapon = !require_weapon
+                        || self.held().is_some_and(|s| {
+                            let id = s.item.as_ref();
+                            id.contains("sword")
+                                || id.contains("axe")
+                                || id.contains("spear")
+                                || id.contains("mace")
+                                || id.contains("trident")
+                        });
 
                     if crit_auto_jump && on_ground {
                         self.pad.touch_tap(horizon_client::gamepad::Button::South);
@@ -8591,13 +8662,92 @@ impl Game<'_> {
                     let can_cooldown = !cooldown_sync || scale >= 0.9;
                     let can_crit = !crit_only || is_crit_ready;
 
-                    if is_weapon && can_cooldown && can_crit && self.before_block(distance) && self.held_range_allows(distance) {
-                        if self.mod_menu.combat.should_attack_feature("trigger_bot", &self.mod_menu.registry) {
+                    if is_weapon
+                        && can_cooldown
+                        && can_crit
+                        && self.before_block(distance)
+                        && self.held_range_allows(distance)
+                    {
+                        if self
+                            .mod_menu
+                            .combat
+                            .should_attack_feature("trigger_bot", &self.mod_menu.registry)
+                        {
                             self.mod_attack_mob(index, false);
                         }
                     }
                 }
             }
+        }
+    }
+
+    /// Aim Assist: eases the view toward the closest entity inside the aim cone.
+    /// Only nudges the view; it never sends attacks, and it does nothing while a
+    /// screen (inventory, chat, pause...) is open.
+    fn tick_aim_assist(&mut self) {
+        if !self.mod_menu.registry.is_enabled("aim_assist") || self.screen != Screen::Playing {
+            return;
+        }
+        if self.spectator() {
+            return;
+        }
+        let Some((p_pos, p_yaw, p_pitch)) = self
+            .player
+            .as_ref()
+            .map(|p| ([p.position.x, p.position.y, p.position.z], p.yaw, p.pitch))
+        else {
+            return;
+        };
+
+        let mobs_iter = self
+            .mobs
+            .iter()
+            .enumerate()
+            .filter(|(_, m)| !m.removed && m.health > 0.0)
+            .map(|(i, m)| {
+                (
+                    i,
+                    m.id,
+                    m.kind.id.as_str(),
+                    m.custom_name.as_deref(),
+                    [m.position.x, m.position.y, m.position.z],
+                    m.health,
+                    m.kind.max_health,
+                )
+            });
+        let Some(target) = self.mod_menu.combat.find_target_for(
+            "aim_assist",
+            &self.mod_menu.registry,
+            p_pos,
+            p_yaw,
+            p_pitch,
+            mobs_iter,
+        ) else {
+            return;
+        };
+        if target.index >= self.mobs.len() || self.mobs[target.index].removed {
+            return;
+        }
+        let Some(eye) = self.eye_position() else {
+            return;
+        };
+
+        let aim = self.mobs[target.index].bounds().center();
+        let (want_yaw, want_pitch) = crate::mod_menu::combat::look_at(eye, [aim.x, aim.y, aim.z]);
+        let speed = self
+            .mod_menu
+            .registry
+            .get_feature("aim_assist")
+            .map_or(0.35, |f| f.get_float_setting("speed"))
+            .clamp(0.05, 1.0);
+
+        let dyaw = crate::mod_menu::combat::wrap_degrees(want_yaw - self.yaw);
+        self.yaw = crate::mod_menu::combat::wrap_degrees(self.yaw + dyaw * speed);
+        self.pitch = (self.pitch + (want_pitch - self.pitch) * speed).clamp(-90.0, 90.0);
+
+        if let Some(p) = self.player.as_mut() {
+            p.yaw = self.yaw;
+            p.pitch = self.pitch;
         }
     }
     fn hud_layers(&mut self, size: [u32; 2]) -> HudBatch {
@@ -16232,7 +16382,8 @@ impl Game<'_> {
         let depth_far =
             horizon_client::camera::depth_far(terrain_distance, self.settings.cloud_range);
         // Only native mods read it: no matrices or allocation per frame without one.
-        let mods_read_camera = !horizon_client::mod_api::mods().is_empty() || self.mod_menu.visuals_active();
+        let mods_read_camera =
+            !horizon_client::mod_api::mods().is_empty() || self.mod_menu.visuals_active();
         self.native_camera_frame = (mods_read_camera && !title).then(|| {
             let partial = camera_alpha as f32;
             horizon_client::mod_api::NativeCamera {
