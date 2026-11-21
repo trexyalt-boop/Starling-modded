@@ -4,6 +4,7 @@
 
 use crate::game::Game;
 use crate::mod_menu::UiAction;
+use horizon_client::items::ItemStack;
 use horizon_client_render::chunk::block_entity::BlockEntity;
 use std::time::{Duration, Instant};
 
@@ -35,6 +36,9 @@ impl Game<'_> {
         self.tick_auto_pot_xp();
         self.tick_auto_clicker();
         self.tick_auto_jump_reset();
+        self.tick_auto_mace();
+        self.tick_inventory_cleaner();
+        self.tick_auto_tool_swap_back();
         self.tick_pearl_restore();
         self.tick_weather();
     }
@@ -174,15 +178,26 @@ impl Game<'_> {
             }
         }
 
-        // Keep Sprint: re-enable sprint after a hit.
+        // Keep Sprint: re-enable sprint after a hit. "Only Hits" narrows it to
+        // a short window after an attack instead of every tick.
         if reg.is_enabled("keep_sprint") {
-            if let Some(p) = self.player.as_mut() {
-                if p.applied_input[1] > 0.0
-                    && !p.shift_key_down
-                    && !p.mobility_restricted
-                    && !self.mod_menu.combat.in_wtap()
-                {
-                    p.sprinting = true;
+            let only_hits = reg
+                .get_feature("keep_sprint")
+                .is_some_and(|f| f.get_bool_setting("only_hits"));
+            let recent_hit = self
+                .mod_menu
+                .combat
+                .last_attack_at
+                .is_some_and(|t| t.elapsed() < Duration::from_millis(700));
+            if !only_hits || recent_hit {
+                if let Some(p) = self.player.as_mut() {
+                    if p.applied_input[1] > 0.0
+                        && !p.shift_key_down
+                        && !p.mobility_restricted
+                        && !self.mod_menu.combat.in_wtap()
+                    {
+                        p.sprinting = true;
+                    }
                 }
             }
         }
@@ -194,6 +209,59 @@ impl Game<'_> {
         } else {
             self.keys.remove(&winit::keyboard::KeyCode::KeyW);
         }
+
+        // Step Assist: raise the step height with a transient attribute
+        // modifier (`EdgeBackoffWorld.max_up_step` reads it). The player's
+        // base is 0.6, so the modifier is the difference, on or off.
+        let (step_on, step_height) = match reg.get_feature("step_helper") {
+            Some(f) if f.enabled => (true, f.get_float_setting("height").clamp(0.5, 1.5)),
+            _ => (false, 0.6),
+        };
+        if let Some(p) = self.player.as_mut() {
+            let _ = p.set_modifier(
+                "minecraft:step_height",
+                "starling:step_helper",
+                f64::from(step_height) - 0.6,
+                "add_value",
+                step_on,
+            );
+        }
+    }
+
+    /// Whether the main hand holds a melee weapon (sword, axe, mace, trident
+    /// or spear), for the modules that gate on one.
+    pub(super) fn mod_holding_weapon(&self) -> bool {
+        self.held().is_some_and(|s| {
+            let id = &*s.item;
+            id.contains("sword")
+                || id.contains("axe")
+                || id.contains("spear")
+                || id.contains("mace")
+                || id.contains("trident")
+        })
+    }
+
+    /// A clear line of sight between two points: blocks with collision stop it
+    /// (`can_see`, as the mob AI tests it).
+    pub(super) fn mod_line_of_sight(&self, from: [f64; 3], to: [f64; 3]) -> bool {
+        let steps = 24;
+        (1..steps).all(|i| {
+            let f = f64::from(i) / f64::from(steps);
+            let p = [
+                from[0] + (to[0] - from[0]) * f,
+                from[1] + (to[1] - from[1]) * f,
+                from[2] + (to[2] - from[2]) * f,
+            ];
+            !self
+                .res
+                .facts()
+                .get(self.world.block(
+                    p[0].floor() as i32,
+                    p[1].floor() as i32,
+                    p[2].floor() as i32,
+                ))
+                .full_collision
+        })
     }
 
     // ------------------------------------------------ auto pot / xp
@@ -209,26 +277,43 @@ impl Game<'_> {
         let pot_delay = reg
             .get_feature("auto_pot")
             .map_or(500, |f| f.get_int_setting("delay")) as u64;
+        let potion = reg
+            .get_feature("auto_pot")
+            .map_or(0, |f| f.get_enum_setting("potion"));
+        let refill = reg
+            .get_feature("auto_pot")
+            .is_some_and(|f| f.get_bool_setting("refill"));
         let xp = reg.is_enabled("auto_xp");
         let xp_delay = reg
             .get_feature("auto_xp")
             .map_or(250, |f| f.get_int_setting("delay")) as u64;
+        let xp_threshold = reg
+            .get_feature("auto_xp")
+            .map_or(60, |f| f.get_int_setting("durability"));
+        let want_pot = if potion == 1 {
+            "regeneration"
+        } else {
+            "healing"
+        };
 
-        // Auto Pot: splash an instant-health potion when low.
+        // Auto Pot: splash the chosen potion when low.
         if pot
             && health < pot_threshold
             && now.duration_since(self.mod_menu.combat.pot_at) >= Duration::from_millis(pot_delay)
         {
-            if let Some(slot) = self.find_hotbar("minecraft:splash_potion") {
+            if let Some(slot) = self.find_hotbar_potion(want_pot) {
                 self.mod_menu.combat.pot_at = now;
                 self.selected = slot;
                 let _ = self.use_item();
+            } else if refill && self.refill_potion(want_pot) {
+                // The hotbar fills on the next tick; delay the next attempt.
+                self.mod_menu.combat.pot_at = now;
             }
         }
 
         // Auto XP: throw experience bottles when a Mending item is worn down.
         if xp
-            && self.worn_item_low()
+            && self.worn_item_low(xp_threshold)
             && now.duration_since(self.mod_menu.combat.xp_at) >= Duration::from_millis(xp_delay)
         {
             if let Some(slot) = self.find_hotbar("minecraft:experience_bottle") {
@@ -239,15 +324,21 @@ impl Game<'_> {
         }
     }
 
-    fn worn_item_low(&self) -> bool {
-        let Some(p) = self.player.as_ref() else {
-            return false;
+    /// A Mending item worn past `threshold` percent of its durability, in the
+    /// pack, the off hand or the armor.
+    fn worn_item_low(&self, threshold: i32) -> bool {
+        let worn = |s: &ItemStack| {
+            s.enchantment_level("minecraft:mending") > 0
+                && s.damage > 0
+                && self.items().get(&s.item).is_some_and(|i| {
+                    i.max_damage > 0
+                        && (s.damage as f32 / i.max_damage as f32) * 100.0
+                            >= (100 - threshold.clamp(5, 100)) as f32
+                })
         };
-        let Some(stack) = &self.offhand else {
-            return false;
-        };
-        // A rough rule: a damaged item with damage >= 25% of a full stack.
-        stack.damage >= 30 && p.health.health() > 6.0
+        self.inventory.iter().flatten().any(&worn)
+            || self.offhand.as_ref().is_some_and(&worn)
+            || self.armor.iter().flatten().any(&worn)
     }
 
     fn find_hotbar(&self, id: &str) -> Option<usize> {
@@ -257,6 +348,35 @@ impl Game<'_> {
                 .and_then(|st| st.as_ref())
                 .is_some_and(|st| &*st.item == id)
         })
+    }
+
+    /// Whether the stack in inventory slot `slot` is a splash potion whose
+    /// contents name `want` (`healing`, `regeneration`).
+    fn pot_matches(&self, slot: usize, want: &str) -> bool {
+        self.inventory
+            .get(slot)
+            .and_then(|s| s.as_ref())
+            .is_some_and(|s| {
+                &*s.item == "minecraft:splash_potion"
+                    && s.potion().is_some_and(|p| p.contains(want))
+            })
+    }
+
+    fn find_hotbar_potion(&self, want: &str) -> Option<usize> {
+        (0..9).find(|&s| self.pot_matches(s, want))
+    }
+
+    /// Moves a matching potion from the pack into the hotbar with a shift
+    /// click, so Auto Pot can keep throwing. Only while no other container is
+    /// open; the hotbar is filled by the menu engine's own quick-move rules.
+    fn refill_potion(&mut self, want: &str) -> bool {
+        if self.container.is_some() || self.creative_inventory_open() {
+            return false;
+        }
+        let Some(pack) = (9..36).find(|&s| self.pot_matches(s, want)) else {
+            return false;
+        };
+        self.menu_click(Some(pack), 0, horizon_client::menu::Input::QuickMove)
     }
 
     // ----------------------------------------------------- key pearl
@@ -310,9 +430,6 @@ impl Game<'_> {
                 return;
             }
         }
-        if self.mod_menu.combat.clicks_held() {
-            return;
-        }
         if self
             .mod_menu
             .combat
@@ -350,6 +467,102 @@ impl Game<'_> {
                 self.pad.touch_tap(horizon_client::gamepad::Button::South);
             }
         }
+    }
+
+    // --------------------------------------------------- auto mace
+
+    /// Auto Mace: when falling with a held mace, smash the target under the
+    /// crosshair once the fall is long enough. "Stun Slam" strips a raised
+    /// shield with an axe first.
+    fn tick_auto_mace(&mut self) {
+        if !self.mod_menu.registry.is_enabled("auto_mace") {
+            return;
+        }
+        let (min_fall, only_players, stun_slam) =
+            match self.mod_menu.registry.get_feature("auto_mace") {
+                Some(f) => (
+                    f.get_float_setting("min_fall").clamp(0.5, 5.0),
+                    f.get_bool_setting("only_players"),
+                    f.get_bool_setting("stun_slam"),
+                ),
+                None => (1.5, true, false),
+            };
+        let Some((index, _)) = self.mob_hit() else {
+            return;
+        };
+        if index >= self.mobs.len() || self.mobs[index].removed || self.mobs[index].health <= 0.0 {
+            return;
+        }
+        if only_players && self.mobs[index].kind.id != "minecraft:player" {
+            return;
+        }
+        let falling = self.player.as_ref().is_some_and(|p| {
+            !p.ground.on_ground && p.fall_distance >= f64::from(min_fall) && !p.fall_flying
+        });
+        if !falling {
+            return;
+        }
+        if stun_slam && self.mobs[index].extra.blocking {
+            // Swap to an axe to strip the raised shield first.
+            if let Some(axe) = (0..9).find(|&s| {
+                self.inventory
+                    .get(s)
+                    .and_then(|st| st.as_ref())
+                    .is_some_and(|st| {
+                        let id = &*st.item;
+                        id.contains("axe") && !id.contains("pickaxe") && !id.contains("shield")
+                    })
+            }) {
+                self.selected = axe;
+                self.mod_attack_mob(index, false);
+                return;
+            }
+        }
+        if self.held().is_some_and(|s| &*s.item == "minecraft:mace") {
+            self.mod_attack_mob(index, false);
+        }
+    }
+
+    // ------------------------------------------- inventory cleaner
+
+    /// Inventory Cleaner: throws small junk stacks out of the pack, keeping
+    /// tools, food and building blocks while their settings are on.
+    fn tick_inventory_cleaner(&mut self) {
+        if !self.mod_menu.registry.is_enabled("inventory_cleaner") {
+            return;
+        }
+        let now = Instant::now();
+        if now.duration_since(self.mod_menu.combat.cleaner_at) < Duration::from_millis(600) {
+            return;
+        }
+        self.mod_menu.combat.cleaner_at = now;
+        let (keep_tools, keep_food, keep_blocks, threshold) =
+            match self.mod_menu.registry.get_feature("inventory_cleaner") {
+                Some(f) => (
+                    f.get_bool_setting("keep_tools"),
+                    f.get_bool_setting("keep_food"),
+                    f.get_bool_setting("keep_blocks"),
+                    f.get_int_setting("threshold").clamp(1, 8) as u32,
+                ),
+                None => (true, true, true, 2),
+            };
+        let Some(slot) = (9..36).find(|&slot| {
+            let Some(stack) = self.inventory.get(slot).and_then(|s| s.as_ref()) else {
+                return false;
+            };
+            if stack.count >= threshold {
+                return false;
+            }
+            let info = self.items().get(&stack.item);
+            let protected = (keep_tools && is_tool(&stack.item))
+                || (keep_food && info.is_some_and(|i| i.food.is_some()))
+                || (keep_blocks && info.is_some_and(|i| i.block.is_some()));
+            !protected
+        }) else {
+            return;
+        };
+        // One Throw click per sweep; the menu engine drops the whole stack.
+        self.menu_click(Some(slot), 1, horizon_client::menu::Input::Throw);
     }
 
     // --------------------------------------------------- weather
@@ -409,7 +622,30 @@ impl Game<'_> {
         }
         if let Some((slot, _)) = best {
             if slot != self.selected {
+                // Remember where to return when `swap_back` is on.
+                if self.mod_menu.combat.prev_tool_slot.is_none() {
+                    self.mod_menu.combat.prev_tool_slot = Some(self.selected);
+                }
                 self.selected = slot;
+            }
+        }
+    }
+
+    /// Auto Tool: returns to the previous slot once the block is gone.
+    fn tick_auto_tool_swap_back(&mut self) {
+        let swap_back = self.mod_menu.registry.is_enabled("auto_tool")
+            && self
+                .mod_menu
+                .registry
+                .get_feature("auto_tool")
+                .is_some_and(|f| f.get_bool_setting("swap_back"));
+        if !swap_back {
+            self.mod_menu.combat.prev_tool_slot = None;
+            return;
+        }
+        if self.mining.is_none() {
+            if let Some(slot) = self.mod_menu.combat.prev_tool_slot.take() {
+                self.selected = slot.min(8);
             }
         }
     }

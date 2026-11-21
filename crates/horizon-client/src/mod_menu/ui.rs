@@ -1181,6 +1181,11 @@ pub fn handle_touch(
                     let h = card_height(f);
                     if py >= y && py <= y + h {
                         let feature = registry.features[real].clone();
+                        // Hover blip when the finger lands on a different card.
+                        if state.hover.as_deref() != Some(feature.id.as_str()) {
+                            state.hover = Some(feature.id.clone());
+                            state.sound(SoundKind::Hover);
+                        }
                         return card_touch(
                             state, registry, config, friends, atlas, real, &feature, px, py,
                             list_x, y, list_w, h,

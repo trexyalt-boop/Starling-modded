@@ -798,6 +798,11 @@ impl HandWorld for GameHands<'_, '_> {
         self.game.hand_strength.reset_attack();
     }
     fn attack_entity(&mut self) -> bool {
+        // Hit Select: a manual click is held while the hurt window is open, so
+        // the swing is not wasted on a target that cannot take damage yet.
+        if self.game.mod_menu.combat.clicks_held() {
+            return false;
+        }
         self.game.attack()
     }
     fn block_action_restricted(&mut self, pos: [i32; 3]) -> bool {

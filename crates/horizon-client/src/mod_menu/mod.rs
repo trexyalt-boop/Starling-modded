@@ -81,6 +81,15 @@ impl ModMenu {
             return;
         }
         self.ui_state.open = open;
+        // The Welcome Toast fires the first time the menu opens.
+        if open
+            && self
+                .registry
+                .get_feature("notifications")
+                .is_some_and(|f| f.get_bool_setting("join"))
+        {
+            self.toast("Starling Mod Menu", "Tap a module to toggle it");
+        }
         self.ui_state.save_to_config(&mut self.config);
         self.config.save();
     }
@@ -102,14 +111,59 @@ impl ModMenu {
         self.config.animations
     }
 
+    /// The Notifications module is the switch for the corner toasts.
+    pub fn notifications_enabled(&self) -> bool {
+        self.registry.is_enabled("notifications")
+    }
+
     pub fn sounds_enabled(&self) -> bool {
-        self.config.sounds
+        // The Client Sounds module is the switch; `config.sounds` is its
+        // serialized mirror for older files.
+        self.registry.is_enabled("client_sounds")
     }
 
     pub fn sound_volume(&self) -> f32 {
         self.registry
             .get_feature("client_sounds")
             .map_or(0.6, |f| f.get_float_setting("volume"))
+    }
+
+    /// The sound the UI queued this tick, filtered by the Client Sounds
+    /// settings (module on, the Hover/Toggle toggles, the volume). The game
+    /// plays it.
+    pub fn take_ui_sound(&mut self) -> Option<(&'static str, f32, f32)> {
+        let kind = self.ui_state.take_sound()?;
+        if !self.sounds_enabled() {
+            return None;
+        }
+        let volume = self.sound_volume().clamp(0.0, 1.0);
+        if volume <= 0.0 {
+            return None;
+        }
+        let feat = self.registry.get_feature("client_sounds");
+        let on = |key: &str| feat.is_none_or(|f| f.get_bool_setting(key));
+        let (name, pitch) = match kind {
+            SoundKind::Hover => {
+                if !on("hover") {
+                    return None;
+                }
+                ("minecraft:ui.button.click", 1.4)
+            }
+            SoundKind::Click => ("minecraft:ui.button.click", 1.0),
+            SoundKind::ToggleOn => {
+                if !on("toggle") {
+                    return None;
+                }
+                ("minecraft:ui.button.click", 1.15)
+            }
+            SoundKind::ToggleOff => {
+                if !on("toggle") {
+                    return None;
+                }
+                ("minecraft:ui.button.click", 0.85)
+            }
+        };
+        Some((name, volume, pitch))
     }
 
     pub fn toast_anchor(&self) -> usize {
@@ -177,7 +231,14 @@ impl ModMenu {
 
         // Toasts raised by the UI become notifications.
         if let Some((title, message)) = self.ui_state.take_toast() {
-            if self.config.notifications {
+            let kind_ok = match title.as_str() {
+                "Enabled" | "Disabled" => self
+                    .registry
+                    .get_feature("notifications")
+                    .is_none_or(|f| f.get_bool_setting("toggles")),
+                _ => true,
+            };
+            if self.notifications_enabled() && kind_ok {
                 let accent = self.palette.accent;
                 self.notifications.push(&title, &message, accent);
             }
@@ -263,7 +324,7 @@ impl ModMenu {
     }
 
     pub fn toast(&mut self, title: &str, message: &str) {
-        if !self.config.notifications {
+        if !self.notifications_enabled() {
             return;
         }
         let accent = self.palette.accent;

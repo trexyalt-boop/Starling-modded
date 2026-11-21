@@ -8415,6 +8415,14 @@ impl Game<'_> {
             let waypoints = self.mod_menu.config.waypoints.clone();
             let trails = self.mod_menu.combat.trails.clone();
             let jump_rings = self.mod_menu.combat.jump_rings.clone();
+            let target = self.mod_menu.combat.current_target.as_ref().map(|t| {
+                crate::mod_menu::visuals::HudTarget {
+                    name: t.name.clone(),
+                    pos: t.position,
+                    health: t.health,
+                    max_health: t.max_health,
+                }
+            });
 
             let data = crate::mod_menu::HudData {
                 cam_pos: cam.position,
@@ -8437,6 +8445,7 @@ impl Game<'_> {
                 target_block,
                 falling: self.mod_menu.combat.is_falling,
                 attack_scale: self.mod_menu.combat.attack_cooldown_scale,
+                target,
             };
             self.mod_menu.render_visuals(batch, &self.gui.atlas, &data);
         }
@@ -8505,11 +8514,32 @@ impl Game<'_> {
             }
         }
 
-        // Auto Sprint: automatically engage sprint when moving forward
+        // Auto Sprint: engage sprint while moving. "Always" keeps it on in any
+        // direction; "Forward" only while pressing forward. "Require Food"
+        // skips it when the hunger bar is too low to sprint.
         if self.mod_menu.registry.is_enabled("auto_sprint") {
-            if let Some(p) = self.player.as_mut() {
-                if p.applied_input[1] > 0.0 && !p.shift_key_down && !p.mobility_restricted {
-                    p.sprinting = true;
+            let (mode, require_food) =
+                self.mod_menu
+                    .registry
+                    .get_feature("auto_sprint")
+                    .map_or((0, true), |f| {
+                        (
+                            f.get_enum_setting("mode"),
+                            f.get_bool_setting("require_food"),
+                        )
+                    });
+            let food_ok =
+                !require_food || self.player.as_ref().is_some_and(|p| p.health.food.food > 6);
+            if food_ok {
+                if let Some(p) = self.player.as_mut() {
+                    let wants = if mode == 0 {
+                        p.applied_input[0].abs() > 0.0 || p.applied_input[1] > 0.0
+                    } else {
+                        p.applied_input[1] > 0.0
+                    };
+                    if wants && !p.shift_key_down && !p.mobility_restricted {
+                        p.sprinting = true;
+                    }
                 }
             }
         }
@@ -8649,7 +8679,7 @@ impl Game<'_> {
                     let can_cooldown = !cooldown_sync || scale >= 0.9;
                     let can_crit = is_crit_ready || (!crit_only_global && !crit_waiting);
 
-                    if can_cooldown && can_crit && !self.mod_menu.combat.clicks_held() {
+                    if can_cooldown && can_crit {
                         if self
                             .mod_menu
                             .combat
@@ -8701,7 +8731,7 @@ impl Game<'_> {
                     let can_cooldown = !cooldown_sync || scale >= 0.9;
                     let can_crit = is_crit_ready || (!crit_only_global && !crit_waiting);
 
-                    if can_cooldown && can_crit && !self.mod_menu.combat.clicks_held() {
+                    if can_cooldown && can_crit {
                         if self.mod_menu.combat.should_attack(&self.mod_menu.registry) {
                             if target.index < self.mobs.len() {
                                 self.mod_attack_mob(target.index, false);
@@ -8763,7 +8793,6 @@ impl Game<'_> {
                     if is_weapon
                         && can_cooldown
                         && can_crit
-                        && !self.mod_menu.combat.clicks_held()
                         && self.before_block(distance)
                         && self.held_range_allows(distance)
                     {
@@ -8794,6 +8823,25 @@ impl Game<'_> {
             return;
         }
         if self.spectator() {
+            return;
+        }
+        let (mode, require_mouse, aim_vertically, visibility, weapons_only, strafe, speed) =
+            match self.mod_menu.registry.get_feature("aim_assist") {
+                Some(f) => (
+                    f.get_enum_setting("mode"),
+                    f.get_bool_setting("require_mouse"),
+                    f.get_bool_setting("aim_vertically"),
+                    f.get_bool_setting("visibility"),
+                    f.get_bool_setting("weapons_only"),
+                    f.get_bool_setting("strafe"),
+                    f.get_float_setting("speed").clamp(0.05, 1.0),
+                ),
+                None => (0, true, false, true, false, false, 0.35),
+            };
+        if require_mouse && !self.left {
+            return;
+        }
+        if weapons_only && !self.mod_holding_weapon() {
             return;
         }
         let Some((p_pos, p_yaw, p_pitch)) = self
@@ -8838,21 +8886,36 @@ impl Game<'_> {
         };
 
         let aim = self.mobs[target.index].bounds().center();
-        let (want_yaw, want_pitch) = crate::mod_menu::combat::look_at(eye, [aim.x, aim.y, aim.z]);
-        let speed = self
-            .mod_menu
-            .registry
-            .get_feature("aim_assist")
-            .map_or(0.35, |f| f.get_float_setting("speed"))
-            .clamp(0.05, 1.0);
+        let aim = [aim.x, aim.y, aim.z];
+        // Visibility Check: never pull the view through a wall.
+        if visibility && !self.mod_line_of_sight(eye, aim) {
+            return;
+        }
+        let (want_yaw, want_pitch) = crate::mod_menu::combat::look_at(eye, aim);
 
         // `speed` used to be the fraction turned per 20 Hz tick; the same
         // time constant per second is a frame-rate independent ease.
-        let rate = -(1.0 - speed.clamp(0.01, 0.99)).ln() * 20.0;
+        let mut rate = -(1.0 - speed.clamp(0.01, 0.99)).ln() * 20.0;
+        // Adaptive eases off as the crosshair closes on the target so the aim
+        // settles instead of snapping past it.
+        if mode == 1 {
+            rate *= (target.angle / 45.0).clamp(0.25, 1.0);
+        }
+        // Strafe Increase pulls a little harder while sidestepping.
+        if strafe
+            && self
+                .player
+                .as_ref()
+                .is_some_and(|p| p.applied_input[0].abs() > 0.1)
+        {
+            rate *= 1.25;
+        }
         let alpha = 1.0 - (-rate * dt).exp();
         let dyaw = crate::mod_menu::combat::wrap_degrees(want_yaw - self.yaw);
         self.yaw = crate::mod_menu::combat::wrap_degrees(self.yaw + dyaw * alpha);
-        self.pitch = (self.pitch + (want_pitch - self.pitch) * alpha).clamp(-90.0, 90.0);
+        if aim_vertically {
+            self.pitch = (self.pitch + (want_pitch - self.pitch) * alpha).clamp(-90.0, 90.0);
+        }
 
         if let Some(p) = self.player.as_mut() {
             p.yaw = self.yaw;
@@ -12227,6 +12290,8 @@ impl Game<'_> {
     pub(super) fn attack_mob(&mut self, index: usize) {
         let target_kind = self.mobs[index].kind.id.clone();
         let target_kind = format!("minecraft:{}", target_kind.trim_start_matches("minecraft:"));
+        // Captured before the hit clears a sprint (`stopSprintAfterExtraKnockback`).
+        let sprint_hit = self.player.as_ref().is_some_and(|p| p.sprinting);
         let (amount, scale, crit, magic) = self.melee_damage(&target_kind, true);
         let sweep = self.sweep_attack_position(scale, crit);
         let (knockback, knockback_attack) = self.extra_knockback(&target_kind, scale);
@@ -12385,6 +12450,11 @@ impl Game<'_> {
             self.audio
                 .play("minecraft:entity.player.attack.nodamage", from, 1.0, 1.0);
         }
+        // The Corz combat bookkeeping: W-tap and Hit Select open their windows.
+        let is_player = target_kind == "minecraft:player";
+        self.mod_menu
+            .combat
+            .note_attack(&self.mod_menu.registry, is_player, sprint_hit);
     }
     /// ServerExplosion: rays from a 16^3 grid lose (resistance + 0.3) * 0.3 per step.
     /// A mob explosion (`ServerLevel.explode` with `ExplosionInteraction.MOB`:
@@ -19115,6 +19185,9 @@ impl Game<'_> {
                     // The Corz menu's own animation clock: the fade-in
                     // (`open_t`), the glow pulse (`time`) and the toasts.
                     self.mod_menu.tick(elapsed.as_secs_f32());
+                    if let Some((sound, volume, pitch)) = self.mod_menu.take_ui_sound() {
+                        self.audio.play(sound, None, volume, pitch);
+                    }
                     self.kinetics_frame();
                     self.advance_flight();
                     self.tick_world_icon();

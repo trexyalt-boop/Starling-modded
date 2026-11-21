@@ -324,6 +324,13 @@ impl Feature {
         }
     }
 
+    /// Marks the module on by default. Meta panels (sounds, toasts) use this
+    /// so their toggle reflects a behaviour that is on out of the box.
+    fn on(mut self) -> Self {
+        self.enabled = true;
+        self
+    }
+
     pub fn setting(&self, key: &str) -> Option<&Setting> {
         self.settings.iter().find(|s| s.key == key)
     }
@@ -617,7 +624,7 @@ impl FeatureRegistry {
                 Setting::float("hud_x", "X", "Card X position.", 10.0, 0.0, 2000.0, 1.0),
                 Setting::float("hud_y", "Y", "Card Y position.", 30.0, 0.0, 2000.0, 1.0),
                 Setting::bool("show_hp_bar", "Health Bar", "Draw the health bar.", true),
-                Setting::bool("show_armor", "Armor", "Draw the target's armor points.", true),
+                Setting::bool("show_armor", "Health", "Draw the target's health value.", true),
                 Setting::bool("show_distance", "Distance", "Draw the distance badge.", true),
             ],
         ));
@@ -924,7 +931,7 @@ impl FeatureRegistry {
                 Setting::bool("hover", "Hover Sound", "Blip when the pointer enters a card.", true),
                 Setting::bool("toggle", "Toggle Sound", "Blip when a module turns on or off.", true),
             ],
-        ));
+        ).on());
         self.push(Feature::new(
             "notifications",
             "Notifications",
@@ -934,7 +941,7 @@ impl FeatureRegistry {
                 Setting::bool("toggles", "Module Toasts", "Toast when a module toggles.", true),
                 Setting::bool("join", "Welcome Toast", "Toast when the menu first opens.", false),
             ],
-        ));
+        ).on());
         self.push(Feature::new(
             "panic",
             "Panic",
@@ -954,7 +961,9 @@ impl FeatureRegistry {
     pub fn load_from_config(&mut self, config: &ModConfig) {
         self.friends = config.friends.clone();
         for f in &mut self.features {
-            f.enabled = config.is_feature_enabled(&f.id, false);
+            // A saved value wins; a fresh file keeps the module's own default
+            // (so the meta panels start on instead of off).
+            f.enabled = config.is_feature_enabled(&f.id, f.enabled);
             f.bind = config.get_keybind(&format!("feature:{}", f.id), "None");
             for s in &mut f.settings {
                 let key = format!("{}:{}", f.id, s.key);

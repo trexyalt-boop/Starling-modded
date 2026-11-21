@@ -9416,6 +9416,12 @@ impl Game<'_> {
             self.swing_arm();
             self.send(S::Punch(Empty));
         }
+        // The Corz combat bookkeeping: W-tap and Hit Select open their windows.
+        let is_player = self.mobs[mob].kind.id == "minecraft:player";
+        let sprint_hit = self.player.as_ref().is_some_and(|p| p.sprinting);
+        self.mod_menu
+            .combat
+            .note_attack(&self.mod_menu.registry, is_player, sprint_hit);
     }
 
     /// `MultiPlayerGameMode.attack` runs `Player.attack` on this client too.

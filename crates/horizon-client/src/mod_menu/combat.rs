@@ -55,6 +55,8 @@ pub struct CombatSystem {
     pub last_ground: bool,
     /// Hotbar slot to return to when Auto Tool finishes a block.
     pub prev_tool_slot: Option<usize>,
+    /// Last Inventory Cleaner sweep.
+    pub cleaner_at: Instant,
 }
 
 impl Default for CombatSystem {
@@ -87,6 +89,7 @@ impl Default for CombatSystem {
             last_attack_at: None,
             last_ground: true,
             prev_tool_slot: None,
+            cleaner_at: now,
         }
     }
 }
@@ -298,16 +301,27 @@ impl CombatSystem {
         self.hit_select_until.is_some_and(|t| Instant::now() < t)
     }
 
-    pub fn note_attack(&mut self, registry: &FeatureRegistry) {
+    /// Records a mob attack: the W-tap sprint release and the Hit Select hold
+    /// window open per their own filters (`only_players`, `only_sprint_hits`).
+    pub fn note_attack(
+        &mut self,
+        registry: &FeatureRegistry,
+        is_player: bool,
+        sprint_hit: bool,
+    ) {
         let now = Instant::now();
         self.last_attack_at = Some(now);
         if let Some(f) = registry.get_feature("hit_select").filter(|f| f.enabled) {
-            let ms = f.get_int_setting("delay").clamp(0, 300) as u64 + 380;
-            self.hit_select_until = Some(now + Duration::from_millis(ms));
+            if !f.get_bool_setting("only_players") || is_player {
+                let ms = f.get_int_setting("delay").clamp(0, 300) as u64 + 380;
+                self.hit_select_until = Some(now + Duration::from_millis(ms));
+            }
         }
         if let Some(f) = registry.get_feature("w_tap").filter(|f| f.enabled) {
-            let ticks = f.get_int_setting("hold_ticks").clamp(1, 6) as u64;
-            self.wtap_until = Some(now + Duration::from_millis(ticks * 50));
+            if !f.get_bool_setting("only_sprint_hits") || sprint_hit {
+                let ticks = f.get_int_setting("hold_ticks").clamp(1, 6) as u64;
+                self.wtap_until = Some(now + Duration::from_millis(ticks * 50));
+            }
         }
     }
 

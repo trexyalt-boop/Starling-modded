@@ -9,6 +9,14 @@ use horizon_client_render::hud::{HudAtlas, HudBatch, rgba};
 use horizon_core::geometry::Aabb;
 use std::time::Instant;
 
+/// The combat target the Target HUD shows: the module's current target.
+pub struct HudTarget {
+    pub name: String,
+    pub pos: [f64; 3],
+    pub health: f32,
+    pub max_health: f32,
+}
+
 /// Everything the HUD needs from the game for one frame.
 pub struct HudData<'a> {
     pub cam_pos: [f64; 3],
@@ -31,6 +39,8 @@ pub struct HudData<'a> {
     pub target_block: Option<([i32; 3], Aabb)>,
     pub falling: bool,
     pub attack_scale: f32,
+    /// The module's current combat target, drawn by the Target HUD.
+    pub target: Option<HudTarget>,
 }
 
 pub fn project_point(
@@ -761,30 +771,42 @@ fn draw_target_hud(
     let feat = registry.get_feature("target_hud");
     let x = feat.map_or(10.0, |f| f.get_float_setting("hud_x"));
     let y = feat.map_or(30.0, |f| f.get_float_setting("hud_y"));
-    // The combat target is published by the game through `current_target`;
-    // the HUD draws the closest player as a fallback while it is empty.
-    let target = data
-        .mobs
-        .iter()
-        .filter(|m| m.6 > 0.0)
-        .min_by(|a, b| {
-            let da = (a.4[0] - data.player_pos[0]).powi(2)
-                + (a.4[1] - data.player_pos[1]).powi(2)
-                + (a.4[2] - data.player_pos[2]).powi(2);
-            let db = (b.4[0] - data.player_pos[0]).powi(2)
-                + (b.4[1] - data.player_pos[1]).powi(2)
-                + (b.4[2] - data.player_pos[2]).powi(2);
-            da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
-        });
-    let Some(target) = target else {
-        return;
+    // Prefer the module's own target; fall back to the closest visible player
+    // while the combat modules have not published one yet.
+    let (name, pos, health, max_health) = if let Some(t) = &data.target {
+        (t.name.clone(), t.pos, t.health, t.max_health)
+    } else {
+        let target = data
+            .mobs
+            .iter()
+            .filter(|m| m.6 > 0.0)
+            .min_by(|a, b| {
+                let da = (a.4[0] - data.player_pos[0]).powi(2)
+                    + (a.4[1] - data.player_pos[1]).powi(2)
+                    + (a.4[2] - data.player_pos[2]).powi(2);
+                let db = (b.4[0] - data.player_pos[0]).powi(2)
+                    + (b.4[1] - data.player_pos[1]).powi(2)
+                    + (b.4[2] - data.player_pos[2]).powi(2);
+                da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+            });
+        let Some(target) = target else {
+            return;
+        };
+        let (_, _, k, custom, p, _, h, mh) = *target;
+        (
+            custom
+                .unwrap_or_else(|| k.trim_start_matches("minecraft:"))
+                .to_string(),
+            p,
+            h,
+            mh,
+        )
     };
-    let (_, _, kind, custom, pos, _, health, max_health) = *target;
+    let name = name.as_str();
     let dist = ((pos[0] - data.player_pos[0]).powi(2)
         + (pos[1] - data.player_pos[1]).powi(2)
         + (pos[2] - data.player_pos[2]).powi(2))
     .sqrt();
-    let name = custom.unwrap_or_else(|| kind.trim_start_matches("minecraft:"));
 
     let w = 150.0;
     let h = 44.0;
@@ -833,27 +855,37 @@ fn draw_crosshair(
     let size = feat.map_or(6, |f| f.get_int_setting("size")).clamp(2, 20) as f32;
     let gap = feat.map_or(3, |f| f.get_int_setting("gap")).clamp(0, 10) as f32;
     let dynamic = feat.is_none_or(|f| f.get_bool_setting("dynamic"));
-    let _ = data;
     let c = rgba(color[0], color[1], color[2], color[3]);
     let cx = screen_w * 0.5;
     let cy = screen_h * 0.5;
     match style {
         1 => batch.fill(atlas, cx - 1.5, cy - 1.5, 3.0, 3.0, c),
         2 => {
-            for i in 0..24 {
-                let a = std::f32::consts::TAU * i as f32 / 24.0;
+            // Circle: `size` is the ring radius, `gap` the centre dot's.
+            let r = size;
+            let segments = (r * 4.0).clamp(16.0, 48.0) as usize;
+            for i in 0..segments {
+                let a = std::f32::consts::TAU * i as f32 / segments as f32;
                 batch.fill(
                     atlas,
-                    cx + a.cos() * gap - 0.7,
-                    cy + a.sin() * gap - 0.7,
-                    1.4,
-                    1.4,
+                    cx + a.cos() * r - 0.8,
+                    cy + a.sin() * r - 0.8,
+                    1.6,
+                    1.6,
                     c,
                 );
             }
+            if gap <= 0.0 {
+                batch.fill(atlas, cx - 1.0, cy - 1.0, 2.0, 2.0, c);
+            }
         }
         _ => {
-            let g = if dynamic { gap } else { gap + 1.0 };
+            // Dynamic: the gap opens with the attack charge.
+            let g = if dynamic {
+                gap + data.attack_scale.clamp(0.0, 1.0) * 4.0
+            } else {
+                gap
+            };
             batch.fill(atlas, cx - size - g, cy - 0.5, size, 1.0, c);
             batch.fill(atlas, cx + g, cy - 0.5, size, 1.0, c);
             batch.fill(atlas, cx - 0.5, cy - size - g, 1.0, size, c);
