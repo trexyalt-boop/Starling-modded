@@ -86,6 +86,9 @@ pub struct UiState {
     pub scroll_start_touch: f32,
     pub scroll_start_offset: f32,
     pub scroll_moved: bool,
+    /// A card tap held back until the finger lifts, so a drag can scroll the
+    /// list instead of toggling the card under it: (registry index, x, y).
+    pub pending_tap: Option<(usize, f32, f32)>,
     pub resizing: bool,
     pub resize_start_touch: [f32; 2],
     pub resize_start_size: [f32; 2],
@@ -139,6 +142,7 @@ impl Default for UiState {
             scroll_start_touch: 0.0,
             scroll_start_offset: 0.0,
             scroll_moved: false,
+            pending_tap: None,
             resizing: false,
             resize_start_touch: [0.0, 0.0],
             resize_start_size: [0.0, 0.0],
@@ -1186,10 +1190,35 @@ pub fn handle_touch(
                             state.hover = Some(feature.id.clone());
                             state.sound(SoundKind::Hover);
                         }
-                        return card_touch(
-                            state, registry, config, friends, atlas, real, &feature, px, py,
-                            list_x, y, list_w, h,
-                        );
+                        // A slider drags from the finger, so touch it at once.
+                        if let Some(key) = card_slider_at(&feature, y, py) {
+                            if let Some((_, min, max, _)) =
+                                feature.setting(&key).and_then(|s| s.slider())
+                            {
+                                let track_x = list_x + 12.0;
+                                let track_w = list_w - 24.0;
+                                let pct = ((px - track_x) / track_w).clamp(0.0, 1.0);
+                                if let Some(feat) = registry.get_feature_mut(&feature.id)
+                                    && let Some(set) = feat.setting_mut(&key)
+                                {
+                                    set.set_slider(min + pct * (max - min));
+                                }
+                                state.active_slider = Some((feature.id.clone(), key));
+                            }
+                            state.sound(SoundKind::Click);
+                            registry.save_to_config(config);
+                            config.save();
+                            state.dragging_scroll = false;
+                            return true;
+                        }
+                        // Everything else waits for the finger to lift, so a
+                        // drag scrolls the list instead of hitting the card.
+                        state.pending_tap = Some((real, px, py));
+                        state.dragging_scroll = true;
+                        state.scroll_start_touch = py;
+                        state.scroll_start_offset = state.scroll_offset;
+                        state.scroll_moved = false;
+                        return true;
                     }
                     y += h + 4.0;
                 }
@@ -1222,6 +1251,8 @@ pub fn handle_touch(
                 let dy = py - state.scroll_start_touch;
                 if dy.abs() > 4.0 {
                     state.scroll_moved = true;
+                    // The drag beat the tap: do not fire it on release.
+                    state.pending_tap = None;
                 }
                 let list_h = wh - l.header - 12.0;
                 let max_scroll = (state.content_h - list_h).max(0.0);
@@ -1250,6 +1281,34 @@ pub fn handle_touch(
             state.dragging_scroll = false;
             state.active_slider = None;
             state.active_touch_id = None;
+            // A tap that did not turn into a scroll lands on the card it began
+            // on; run it now that the finger has lifted.
+            if phase == TouchPhase::Ended
+                && !state.scroll_moved
+                && let Some((real, px0, py0)) = state.pending_tap.take()
+            {
+                let list_x = wx + l.sidebar + 8.0;
+                let list_y = wy + l.header + 6.0;
+                let list_w = ww - l.sidebar - 16.0;
+                let mut y = list_y - state.scroll_offset;
+                let mut hit = None;
+                for r in visible_indices(registry, state) {
+                    if r == real {
+                        hit = Some(y);
+                    }
+                    y += card_height(&registry.features[r]) + 4.0;
+                }
+                if let Some(y) = hit {
+                    let feature = registry.features[real].clone();
+                    let h = card_height(&feature);
+                    card_touch(
+                        state, registry, config, friends, atlas, real, &feature, px0, py0,
+                        list_x, y, list_w, h,
+                    );
+                }
+            }
+            state.pending_tap = None;
+            state.scroll_moved = false;
             if consumed {
                 state.save_to_config(config);
                 config.save();
@@ -1257,6 +1316,30 @@ pub fn handle_touch(
             consumed
         }
     }
+}
+
+/// The key of the slider setting row under `py` on an expanded card, if any.
+/// A slider drags from the finger, so it is acted on at touch-down instead of
+/// being deferred like the other card taps.
+fn card_slider_at(f: &Feature, y: f32, py: f32) -> Option<String> {
+    if !f.expanded || matches!(f.id.as_str(), "configs" | "friends") {
+        return None;
+    }
+    let mut row_y = y + 36.0;
+    if f.id == "gui_settings" {
+        row_y += 22.0;
+    }
+    for s in &f.settings {
+        if py >= row_y && py <= row_y + 24.0 {
+            return matches!(
+                s.value,
+                SettingValue::Float { .. } | SettingValue::Range { .. } | SettingValue::Int { .. }
+            )
+            .then(|| s.key.clone());
+        }
+        row_y += 26.0;
+    }
+    None
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1278,8 +1361,10 @@ fn card_touch(
     let toggle_x = x + w - 36.0;
     let chevron_x = x + w - 64.0;
 
-    // Module toggle.
-    if px >= toggle_x {
+    // Module toggle: the switch in the card header. (On a collapsed card a tap
+    // anywhere toggles, below; restricting this to the header stops it from
+    // stealing the settings on the right of an expanded card.)
+    if px >= toggle_x && (!f.expanded || py <= y + 26.0) {
         if f.id == "panic" {
             state.pending_action = Some(UiAction::Panic);
             state.toast("Panic", "Every module disabled");

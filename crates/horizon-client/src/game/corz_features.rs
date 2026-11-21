@@ -37,6 +37,7 @@ impl Game<'_> {
         self.tick_auto_clicker();
         self.tick_auto_jump_reset();
         self.tick_auto_mace();
+        self.tick_trident_assist();
         self.tick_inventory_cleaner();
         self.tick_auto_tool_swap_back();
         self.tick_pearl_restore();
@@ -521,6 +522,67 @@ impl Game<'_> {
         if self.held().is_some_and(|s| &*s.item == "minecraft:mace") {
             self.mod_attack_mob(index, false);
         }
+    }
+
+    // ------------------------------------------------- trident assist
+
+    /// Trident Assist: throws a charged trident at the target under the
+    /// crosshair, or riptides toward it in water or rain.
+    fn tick_trident_assist(&mut self) {
+        let (auto_throw, auto_riptide, charge) =
+            match self.mod_menu.registry.get_feature("trident_assist") {
+                Some(f) if f.enabled => (
+                    f.get_bool_setting("auto_throw"),
+                    f.get_bool_setting("auto_riptide"),
+                    f.get_int_setting("charge").clamp(50, 100),
+                ),
+                _ => return,
+            };
+        if !auto_throw && !auto_riptide {
+            return;
+        }
+        // Only while a trident is held and a live target sits under the
+        // crosshair (a thrown trident needs a line to fly).
+        let riptide = match self.held() {
+            Some(s) if &*s.item == "minecraft:trident" => {
+                s.enchantment_level("minecraft:riptide") > 0
+            }
+            _ => return,
+        };
+        let Some((index, _)) = self.mob_hit() else {
+            return;
+        };
+        if index >= self.mobs.len() || self.mobs[index].removed || self.mobs[index].health <= 0.0 {
+            return;
+        }
+        // Riptide and the throw each have a short internal cooldown, so a held
+        // click does not spam packets.
+        let now = Instant::now();
+        if now.duration_since(self.mod_menu.combat.trident_at) < Duration::from_millis(500) {
+            return;
+        }
+        if riptide {
+            if !auto_riptide {
+                return;
+            }
+            let wet = self
+                .player
+                .as_ref()
+                .is_some_and(|p| p.fluids.was_touching_water);
+            if !wet && !self.world.weather.raining {
+                return;
+            }
+        } else {
+            if !auto_throw {
+                return;
+            }
+            // Wait for the attack charge to reach the configured percent.
+            if self.mod_menu.combat.attack_cooldown_scale * 100.0 < charge as f32 {
+                return;
+            }
+        }
+        self.mod_menu.combat.trident_at = now;
+        let _ = self.use_item();
     }
 
     // ------------------------------------------- inventory cleaner

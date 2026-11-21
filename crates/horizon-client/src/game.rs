@@ -8838,7 +8838,14 @@ impl Game<'_> {
                 ),
                 None => (0, true, false, true, false, false, 0.35),
             };
-        if require_mouse && !self.left {
+        // Require Mouse Down: also allow a short window after a hit, so a tap
+        // attack or a quick click still gets the assist.
+        let attack_grace = self
+            .mod_menu
+            .combat
+            .last_attack_at
+            .is_some_and(|t| t.elapsed() < Duration::from_millis(300));
+        if require_mouse && !self.left && !attack_grace {
             return;
         }
         if weapons_only && !self.mod_holding_weapon() {

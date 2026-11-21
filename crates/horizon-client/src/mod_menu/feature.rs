@@ -412,8 +412,8 @@ impl FeatureRegistry {
             Combat,
             vec![
                 Setting::choice("mode", "Mode", "Simple turns at a steady speed; Adaptive slows down as you close in.", 0, &["Simple", "Adaptive"]),
-                Setting::choice("targets", "Targets", "What the aim may lock on to.", 0, &["Players", "Players + Mobs", "Mobs"]),
-                Setting::bool("require_mouse", "Require Mouse Down", "Only aims while you hold your attack button.", true),
+                Setting::choice("targets", "Targets", "What the aim may lock on to.", 1, &["Players", "Players + Mobs", "Mobs"]),
+                Setting::bool("require_mouse", "Require Mouse Down", "Only aims while you hold your attack button (or just after a hit).", false),
                 Setting::bool("aim_vertically", "Aim Vertically", "Also pulls your aim up and down.", false),
                 Setting::bool("visibility", "Visibility Check", "Only aims at targets you can see, never through walls.", true),
                 Setting::bool("weapons_only", "Weapons Only", "Only aims while you hold a sword, axe, mace, trident or spear.", false),

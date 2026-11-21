@@ -57,6 +57,8 @@ pub struct CombatSystem {
     pub prev_tool_slot: Option<usize>,
     /// Last Inventory Cleaner sweep.
     pub cleaner_at: Instant,
+    /// Last Trident Assist throw or riptide.
+    pub trident_at: Instant,
 }
 
 impl Default for CombatSystem {
@@ -90,6 +92,7 @@ impl Default for CombatSystem {
             last_ground: true,
             prev_tool_slot: None,
             cleaner_at: now,
+            trident_at: now,
         }
     }
 }
