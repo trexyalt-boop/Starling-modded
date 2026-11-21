@@ -8851,13 +8851,15 @@ impl Game<'_> {
         if weapons_only && !self.mod_holding_weapon() {
             return;
         }
-        let Some((p_pos, p_yaw, p_pitch)) = self
+        let Some(p_pos) = self
             .player
             .as_ref()
-            .map(|p| ([p.position.x, p.position.y, p.position.z], p.yaw, p.pitch))
+            .map(|p| [p.position.x, p.position.y, p.position.z])
         else {
             return;
         };
+        // The cone is centred on the live camera, not the player's lagging copy.
+        let (p_yaw, p_pitch) = (self.yaw, self.pitch);
 
         let mobs_iter = self
             .mobs
