@@ -749,6 +749,7 @@ impl Game<'_> {
             [t.location.x as f32, t.location.y as f32],
             t.id,
             scale,
+            &self.gui.atlas,
         ) {
             return true;
         }

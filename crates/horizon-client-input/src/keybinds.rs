@@ -458,6 +458,12 @@ impl KeyBinds {
         }
         vec![Ok(key)]
     }
+    /// Whether any mapping (other than a debug key) is bound to `key`. A key
+    /// no mapping uses still translates to itself, so this is what tells a
+    /// free key from one the player's controls already own.
+    pub fn is_bound(&self, key: KeyCode) -> bool {
+        key_name(key).is_some_and(|name| self.translated_mappings(name).next().is_some())
+    }
     /// Translate a mouse button the same way (keys bound to mouse buttons).
     pub fn translate_mouse(&self, button: MouseButton) -> Option<Result<KeyCode, MouseButton>> {
         self.translate_mouse_all(button).into_iter().next()

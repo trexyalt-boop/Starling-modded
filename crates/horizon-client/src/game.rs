@@ -102,6 +102,7 @@ mod composter;
 mod consume;
 mod control;
 mod copper_golems;
+mod corz_features;
 mod cosmetics;
 mod creaking;
 mod creative_hotbar;
@@ -7165,6 +7166,19 @@ impl Game<'_> {
         }
         let block_break_speed = self.block_break_speed();
         let state = self.world.block(hit.pos[0], hit.pos[1], hit.pos[2]);
+        let block_name = self.res.facts().get(state).name.clone();
+        // Auto Tool: remember the slot we started with and switch to the best
+        // tool for this block while it is being mined.
+        if self.mod_menu.registry.is_enabled("auto_tool") {
+            if self.mining.as_ref().is_none_or(|m| m.pos != hit.pos)
+                && self.mod_menu.combat.prev_tool_slot.is_none()
+            {
+                self.mod_menu.combat.prev_tool_slot = Some(self.selected);
+            }
+            self.mod_auto_tool(&block_name);
+        } else if let Some(slot) = self.mod_menu.combat.prev_tool_slot.take() {
+            self.selected = slot.min(8);
+        }
         let facts = self.res.facts().get(state);
         if facts.hardness < 0.0 {
             // The server still counts its destroy ticks on an unbreakable block.
@@ -7179,6 +7193,16 @@ impl Game<'_> {
         let mut speed = self.items().mining_speed(held, &facts.name);
         speed = self.modify_destroy_speed(speed);
         speed *= block_break_speed;
+        // Fast Break: multiply the block's destroy speed.
+        if self.mod_menu.registry.is_enabled("fastbreak") {
+            let mult = self
+                .mod_menu
+                .registry
+                .get_feature("fastbreak")
+                .map_or(1.3, |f| f.get_float_setting("multiplier"))
+                .clamp(1.0, 3.0);
+            speed *= mult;
+        }
         let player = self.player.as_ref().ok_or("no player")?;
         if !player.ground.on_ground {
             speed /= 5.0;
@@ -7221,6 +7245,9 @@ impl Game<'_> {
         if m.progress >= 1.0 && (self.lan_acting.is_none() || m.ticks == 1) {
             let pos = m.pos;
             self.mining = None;
+            if let Some(slot) = self.mod_menu.combat.prev_tool_slot.take() {
+                self.selected = slot.min(8);
+            }
             self.break_block(pos)?;
             self.destroy_delay = 5;
         }
@@ -7716,6 +7743,19 @@ impl Game<'_> {
     }
     /// Apply a physical key to every mapping bound to it.
     fn mapped_key_event(&mut self, key: KeyCode, pressed: bool, repeat: bool) -> Result<()> {
+        // Mod menu shortcuts act in gameplay only, and never take a key the
+        // player's own controls already use: vanilla wins that key.
+        if pressed
+            && !repeat
+            && self.screen == Screen::Playing
+            && self.title.is_none()
+            && !self.dialog_open()
+        {
+            let vanilla_bound = self.settings.keys.is_bound(key);
+            if self.mod_menu.handle_shortcut(key, vanilla_bound) {
+                return Ok(());
+            }
+        }
         for mapped in self.settings.keys.translate_all(key) {
             match mapped {
                 Ok(k) => {
@@ -8347,24 +8387,58 @@ impl Game<'_> {
                 })
                 .collect();
 
-            let biome_name = self.dim.id();
-            let cam_pos = cam.position;
-            let cam_view = cam.view;
-            let cam_proj = cam.projection;
+            // Count totems in the inventory and offhand.
+            let totems = self
+                .inventory
+                .iter()
+                .filter_map(|s| s.as_ref())
+                .filter(|s| &*s.item == "minecraft:totem_of_undying" && s.count > 0)
+                .count();
+            let offhand_totem = self
+                .offhand
+                .as_ref()
+                .is_some_and(|s| &*s.item == "minecraft:totem_of_undying" && s.count > 0);
 
-            self.mod_menu.render_visuals(
-                batch,
-                &self.gui.atlas,
-                cam_pos,
-                cam_view,
-                cam_proj,
-                p_pos,
-                p_yaw,
-                p_pitch,
-                biome_name,
-                self.fps,
-                &mobs,
-            );
+            // The block under the crosshair, for Block Highlight.
+            let target_block = self.pick().map(|hit| {
+                (
+                    hit.pos,
+                    horizon_core::geometry::Aabb::block(horizon_core::position::BlockPos::new(
+                        hit.pos[0], hit.pos[1], hit.pos[2],
+                    )),
+                )
+            });
+
+            // Small snapshots so the borrow checker stays out of the way while
+            // the renderer takes `&mut mod_menu`.
+            let storage = self.mod_menu.combat.storage.clone();
+            let waypoints = self.mod_menu.config.waypoints.clone();
+            let trails = self.mod_menu.combat.trails.clone();
+            let jump_rings = self.mod_menu.combat.jump_rings.clone();
+
+            let data = crate::mod_menu::HudData {
+                cam_pos: cam.position,
+                cam_view: cam.view,
+                cam_proj: cam.projection,
+                cam_fov: cam.fov_degrees,
+                player_pos: p_pos,
+                player_yaw: p_yaw,
+                player_pitch: p_pitch,
+                biome: self.dim.id(),
+                dimension: self.dim.id(),
+                fps: self.fps,
+                mobs: &mobs,
+                storage: &storage,
+                waypoints: &waypoints,
+                trails: &trails,
+                jump_rings: &jump_rings,
+                totems,
+                offhand_totem,
+                target_block,
+                falling: self.mod_menu.combat.is_falling,
+                attack_scale: self.mod_menu.combat.attack_cooldown_scale,
+            };
+            self.mod_menu.render_visuals(batch, &self.gui.atlas, &data);
         }
 
         // Render the mod menu window and floating toggle button
@@ -8375,6 +8449,9 @@ impl Game<'_> {
         if index >= self.mobs.len() || self.spectator() {
             return;
         }
+        // The crit this jump was waiting for landed (or the fallback fired):
+        // the next one may start.
+        self.mod_menu.combat.auto_crit_jump_at = None;
         if self.remote.is_some() {
             self.remote_attack_mob(index, silent);
         } else {
@@ -8397,6 +8474,9 @@ impl Game<'_> {
 
     /// Updates active gameplay modifications: Fullbright, Silent Aura, Trigger Bot, Critical Helper, Auto-Sprint, Fast Place, Time Changer.
     fn tick_mod_menu(&mut self) {
+        // The Corz gameplay modules (zoom, storage, trails, auto pot/xp,
+        // key pearl, auto clicker, movement helpers, weather...).
+        self.tick_corz_features();
         // Fullbright: sync to renderer's native lightmap override for caves & nighttime visibility
         let fullbright = self.mod_menu.registry.is_enabled("fullbright");
         if let Some(r) = self.renderer.as_mut() {
@@ -8441,6 +8521,7 @@ impl Game<'_> {
         let mut is_falling = false;
         let mut on_ground = true;
         let mut is_crit_ready = false;
+        let mut crit_blocked = true;
 
         if let Some(p) = self.player.as_ref() {
             on_ground = p.ground.on_ground;
@@ -8450,6 +8531,7 @@ impl Game<'_> {
                 && !p.sprinting;
             let restricted =
                 self.potions.effects.get("blindness").is_some() || self.riding.is_some();
+            crit_blocked = restricted || p.fluids.was_touching_water || p.sprinting;
             is_crit_ready = scale > 0.9 && is_falling && !restricted;
         }
 
@@ -8470,6 +8552,37 @@ impl Game<'_> {
                 .get_feature("crit_assist")
                 .is_some_and(|f| f.get_bool_setting("auto_jump"));
 
+        if crit_auto_jump {
+            let now = Instant::now();
+            // A jump that never unblocked (a low ceiling, a server that
+            // ignores it) must not stop combat attacks for good.
+            let grace = Duration::from_millis(300);
+            if self
+                .mod_menu
+                .combat
+                .auto_crit_jump_at
+                .is_some_and(|at| now.duration_since(at) >= grace)
+            {
+                self.mod_menu.combat.auto_crit_jump_at = None;
+            }
+            // Jump only with the weapon charged: the fall then carries the
+            // charged hit instead of landing before it is ready.
+            if on_ground
+                && !crit_blocked
+                && scale > 0.9
+                && self.mod_menu.combat.auto_crit_jump_at.is_none()
+            {
+                self.pad.touch_tap(horizon_client::gamepad::Button::South);
+                self.mod_menu.combat.auto_crit_jump_at = Some(now);
+            }
+        }
+
+        // While the crit jump is in flight, an attack on the ground would
+        // reset the charge and lose the crit: wait for the fall, or for the
+        // grace above to fall back to normal attacks.
+        let crit_waiting =
+            crit_auto_jump && self.mod_menu.combat.auto_crit_jump_at.is_some() && !is_crit_ready;
+
         // Clean up stale target in Target HUD
         if let Some(curr) = &self.mod_menu.combat.current_target {
             if curr.index >= self.mobs.len()
@@ -8479,9 +8592,6 @@ impl Game<'_> {
                 self.mod_menu.combat.current_target = None;
             }
         }
-
-        // Aim Assist: smoothly steer the view toward the best entity in the cone
-        self.tick_aim_assist();
 
         // Silent Aura: automated silent attack on the best *reachable* candidate
         if self.mod_menu.registry.is_enabled("silent_aura") {
@@ -8536,14 +8646,10 @@ impl Game<'_> {
                     let cooldown_sync = feat.map_or(true, |f| f.get_bool_setting("cooldown_sync"));
                     let silent = feat.map_or(true, |f| f.get_bool_setting("silent_swing"));
 
-                    if crit_auto_jump && on_ground {
-                        self.pad.touch_tap(horizon_client::gamepad::Button::South);
-                    }
-
                     let can_cooldown = !cooldown_sync || scale >= 0.9;
-                    let can_crit = !crit_only_global || is_crit_ready;
+                    let can_crit = is_crit_ready || (!crit_only_global && !crit_waiting);
 
-                    if can_cooldown && can_crit {
+                    if can_cooldown && can_crit && !self.mod_menu.combat.clicks_held() {
                         if self
                             .mod_menu
                             .combat
@@ -8592,14 +8698,10 @@ impl Game<'_> {
                     let feat = self.mod_menu.registry.get_feature("combat_test");
                     let cooldown_sync = feat.map_or(true, |f| f.get_bool_setting("cooldown_sync"));
 
-                    if crit_auto_jump && on_ground {
-                        self.pad.touch_tap(horizon_client::gamepad::Button::South);
-                    }
-
                     let can_cooldown = !cooldown_sync || scale >= 0.9;
-                    let can_crit = !crit_only_global || is_crit_ready;
+                    let can_crit = is_crit_ready || (!crit_only_global && !crit_waiting);
 
-                    if can_cooldown && can_crit {
+                    if can_cooldown && can_crit && !self.mod_menu.combat.clicks_held() {
                         if self.mod_menu.combat.should_attack(&self.mod_menu.registry) {
                             if target.index < self.mobs.len() {
                                 self.mod_attack_mob(target.index, false);
@@ -8655,16 +8757,13 @@ impl Game<'_> {
                                 || id.contains("trident")
                         });
 
-                    if crit_auto_jump && on_ground {
-                        self.pad.touch_tap(horizon_client::gamepad::Button::South);
-                    }
-
                     let can_cooldown = !cooldown_sync || scale >= 0.9;
-                    let can_crit = !crit_only || is_crit_ready;
+                    let can_crit = is_crit_ready || (!crit_only && !crit_waiting);
 
                     if is_weapon
                         && can_cooldown
                         && can_crit
+                        && !self.mod_menu.combat.clicks_held()
                         && self.before_block(distance)
                         && self.held_range_allows(distance)
                     {
@@ -8682,10 +8781,16 @@ impl Game<'_> {
     }
 
     /// Aim Assist: eases the view toward the closest entity inside the aim cone.
-    /// Only nudges the view; it never sends attacks, and it does nothing while a
-    /// screen (inventory, chat, pause...) is open.
-    fn tick_aim_assist(&mut self) {
+    /// Runs per frame with the frame's own time step, so the turn is smooth at
+    /// any frame rate instead of stepping at 20 Hz. Only nudges the view; it
+    /// never sends attacks, and it does nothing while a screen (inventory,
+    /// chat, pause...) is open.
+    fn frame_aim_assist(&mut self, dt: f32) {
         if !self.mod_menu.registry.is_enabled("aim_assist") || self.screen != Screen::Playing {
+            return;
+        }
+        let dt = dt.clamp(0.0, 0.1);
+        if dt <= 0.0 {
             return;
         }
         if self.spectator() {
@@ -8741,9 +8846,13 @@ impl Game<'_> {
             .map_or(0.35, |f| f.get_float_setting("speed"))
             .clamp(0.05, 1.0);
 
+        // `speed` used to be the fraction turned per 20 Hz tick; the same
+        // time constant per second is a frame-rate independent ease.
+        let rate = -(1.0 - speed.clamp(0.01, 0.99)).ln() * 20.0;
+        let alpha = 1.0 - (-rate * dt).exp();
         let dyaw = crate::mod_menu::combat::wrap_degrees(want_yaw - self.yaw);
-        self.yaw = crate::mod_menu::combat::wrap_degrees(self.yaw + dyaw * speed);
-        self.pitch = (self.pitch + (want_pitch - self.pitch) * speed).clamp(-90.0, 90.0);
+        self.yaw = crate::mod_menu::combat::wrap_degrees(self.yaw + dyaw * alpha);
+        self.pitch = (self.pitch + (want_pitch - self.pitch) * alpha).clamp(-90.0, 90.0);
 
         if let Some(p) = self.player.as_mut() {
             p.yaw = self.yaw;
@@ -16753,7 +16862,13 @@ impl Game<'_> {
                     || self.dialog_open()
                     || (self.screen == Screen::Win && self.win_screen_pauses())));
         let radius = self.settings.menu_blur as f32;
-        (blurred && radius >= 1.0).then_some(radius)
+        // The Corz menu's frosted blur shows while the window is open and the
+        // GUI's blur setting is on.
+        if radius >= 1.0 && (blurred || self.mod_menu.gui_blur()) {
+            Some(radius)
+        } else {
+            None
+        }
     }
     /// `LevelExtractor` / `LevelRenderer`: the world border wall this frame.
     fn border_draw(
@@ -17650,6 +17765,39 @@ impl Game<'_> {
         };
         if !ours {
             return;
+        }
+        // The Corz mod menu owns touches and keys while it is open (or while a
+        // module bind or the floating button needs the event). A consumed event
+        // never reaches the game.
+        if let WindowEvent::Touch(touch) = &event {
+            let size = self.window.as_ref().map_or([1, 1], |w| {
+                let s = w.inner_size();
+                [s.width, s.height]
+            });
+            let scale = HudBatch::new(size).scale;
+            if self.mod_menu.touch_event(
+                touch.phase,
+                [touch.location.x as f32, touch.location.y as f32],
+                touch.id,
+                scale,
+                &self.gui.atlas,
+            ) {
+                return;
+            }
+        }
+        if let WindowEvent::KeyboardInput { event, .. } = &event {
+            let name = match event.physical_key {
+                PhysicalKey::Code(code) => crate::mod_menu::ModMenu::key_name(code),
+                PhysicalKey::Unidentified(_) => None,
+            };
+            if self.mod_menu.keyboard(
+                name,
+                event.text.as_deref(),
+                event.state.is_pressed(),
+                event.repeat,
+            ) {
+                return;
+            }
         }
         self.save_when_focus_leaves(&event);
         if self.touch_event(event_loop, id, &event) {
@@ -18950,6 +19098,7 @@ impl Game<'_> {
                     self.extras_retry()?;
                     self.apply_mouse_look();
                     self.pad_look(elapsed.as_secs_f32());
+                    self.frame_aim_assist(elapsed.as_secs_f32());
                     self.kinetics_frame();
                     self.advance_flight();
                     self.tick_world_icon();

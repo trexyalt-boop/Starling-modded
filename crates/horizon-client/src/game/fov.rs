@@ -143,6 +143,17 @@ impl Game<'_> {
         let vanilla = self.zoomed_fov_degrees(fov);
         let mut degrees = vanilla;
         self.native_compute_fov(partial, camera, &mut degrees);
+        // Corz Zoom: ease the field of view in with the module's progress.
+        let progress = self.mod_menu.combat.zoom_progress;
+        if progress > 0.001 && self.mod_menu.registry.is_enabled("zoom") {
+            let factor = self
+                .mod_menu
+                .registry
+                .get_feature("zoom")
+                .map_or(4.0, |f| f.get_float_setting("factor"))
+                .clamp(1.5, 20.0);
+            degrees = (degrees / (1.0 + (factor - 1.0) * progress)).clamp(1.0, 179.0);
+        }
         if degrees.is_finite() && (1.0..=179.0).contains(&degrees) {
             degrees
         } else {
