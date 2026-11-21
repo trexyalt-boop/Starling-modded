@@ -17766,6 +17766,19 @@ impl Game<'_> {
         if !ours {
             return;
         }
+        // The Android Back key closes the Corz menu. It arrives as a
+        // `BrowserBack` key, which the menu's own keyboard handling below
+        // would otherwise swallow, since it owns the keyboard while open.
+        if let WindowEvent::KeyboardInput { event, .. } = &event
+            && event.state.is_pressed()
+            && !event.repeat
+            && event.logical_key
+                == winit::keyboard::Key::Named(winit::keyboard::NamedKey::BrowserBack)
+            && self.mod_menu.is_open()
+        {
+            self.mod_menu.set_open(false);
+            return;
+        }
         // The Corz mod menu owns touches and keys while it is open (or while a
         // module bind or the floating button needs the event). A consumed event
         // never reaches the game.
@@ -19099,6 +19112,9 @@ impl Game<'_> {
                     self.apply_mouse_look();
                     self.pad_look(elapsed.as_secs_f32());
                     self.frame_aim_assist(elapsed.as_secs_f32());
+                    // The Corz menu's own animation clock: the fade-in
+                    // (`open_t`), the glow pulse (`time`) and the toasts.
+                    self.mod_menu.tick(elapsed.as_secs_f32());
                     self.kinetics_frame();
                     self.advance_flight();
                     self.tick_world_icon();
